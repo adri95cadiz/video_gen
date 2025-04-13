@@ -54,7 +54,7 @@ class VideoGenerator:
         audio = AudioSegment.from_file(audio_path)
         return len(audio) / 1000.0  # Convertir de ms a segundos
     
-    def create_video(self, image_paths, audio_paths, sentences, output_path, bg_color="black"):
+    def create_video(self, image_paths, audio_paths, sentences, output_path, bg_color="black", background_music_path=None):
         """
         Crea un video combinando imágenes y audio (versión simplificada)
         
@@ -64,6 +64,7 @@ class VideoGenerator:
             sentences: Lista de oraciones para los subtítulos
             output_path: Ruta de salida para el video
             bg_color: Color de fondo (no usado en versión simple)
+            background_music_path: Ruta a un archivo de música de fondo (opcional)
             
         Returns:
             str: Ruta al video generado
@@ -73,8 +74,12 @@ class VideoGenerator:
         if len(image_paths) != len(audio_paths):
             raise ValueError("Las listas de imágenes y audios deben tener la misma longitud")
         
+        # Verificar si se proporcionó música de fondo
+        has_background_music = background_music_path and os.path.exists(background_music_path)
+        
         # Crear archivos de video temporales a partir de cada par imagen-audio
         temp_videos = []
+        total_duration = 0
         
         for i, (img_path, audio_path) in enumerate(zip(image_paths, audio_paths)):
             try:
@@ -83,6 +88,7 @@ class VideoGenerator:
                 
                 # Obtener la duración del audio
                 audio_duration = self.get_audio_duration(audio_path)
+                total_duration += audio_duration
                 
                 # Escapar texto para ffmpeg (reemplazar comillas, etc.)
                 texto_subtitulo = sentences[i].replace("'", "\\'").replace('"', '\\"')
@@ -198,7 +204,7 @@ class VideoGenerator:
             raise Exception("No se pudieron generar videos temporales")
         
         # Si solo hay un video, usarlo directamente
-        if len(temp_videos) == 1:
+        if len(temp_videos) == 1 and not has_background_music:
             shutil.copy(temp_videos[0], output_path)
             return output_path
         
@@ -228,6 +234,34 @@ class VideoGenerator:
         print("Generando versión base del video...")
         os.system(concat_simple_cmd)
         
+        # Si se proporcionó música de fondo, añadirla al video final
+        if has_background_music:
+            # Preparar el archivo de música de fondo
+            bg_music_escaped = background_music_path.replace('\\', '//')
+            video_with_music = os.path.join(temp_dir, "video_with_music.mp4")
+            video_with_music_escaped = video_with_music.replace('\\', '//')
+            
+            # Calcular las opciones de mezcla de audio
+            # Reducir volumen de la música de fondo para que no sobrepase la narración
+            # y asegurarse que dura lo mismo que el video
+            audio_mix_cmd = (
+                f"ffmpeg -y -i \"{temp_output_escaped}\" -i \"{bg_music_escaped}\" "
+                f"-filter_complex \"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.1[bg];"
+                f"[0:a][bg]amix=inputs=2:duration=first,pan=stereo|c0<c0+c2|c1<c1+c3[a]\" "
+                f"-map 0:v -map \"[a]\" -c:v copy -c:a aac -b:a 192k -shortest "
+                f"\"{video_with_music_escaped}\""
+            )
+            
+            print("Añadiendo música de fondo...")
+            os.system(audio_mix_cmd)
+            
+            # Comprobar si se generó correctamente
+            if os.path.exists(video_with_music) and os.path.getsize(video_with_music) > 0:
+                temp_output = video_with_music
+                temp_output_escaped = video_with_music_escaped
+            else:
+                print("Error al añadir música de fondo, se usará el video sin música")
+        
         # Si la concatenación simple funciona, proceder con la versión final
         if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
             # Crear una versión con transiciones suaves usando crossfade
@@ -252,6 +286,9 @@ class VideoGenerator:
             # Eliminar archivos temporales de concatenación
             if os.path.exists(temp_output):
                 os.remove(temp_output)
+                
+            if has_background_music and os.path.exists(video_with_music):
+                os.remove(video_with_music)
             
             # Eliminar directorio temporal
             if os.path.exists(temp_dir) and temp_dir.startswith(tempfile.gettempdir()):

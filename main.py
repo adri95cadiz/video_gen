@@ -4,6 +4,8 @@
 import os
 import argparse
 import sys
+import datetime
+import torch
 from src.ai_agent import AIVideoAgent
 
 def main():
@@ -18,6 +20,7 @@ def main():
     parser.add_argument(
         "--prompt", 
         type=str, 
+        required=True,
         help="Prompt de texto para generar el vídeo"
     )
     
@@ -45,6 +48,7 @@ def main():
     parser.add_argument(
         "--local", 
         action="store_true",
+        default=False,
         help="Usar modelos locales en lugar de APIs externas (evita costes de API)"
     )
 
@@ -69,6 +73,7 @@ def main():
     parser.add_argument(
         "--gpu",
         action="store_true",
+        default=False,
         help="Forzar uso de GPU si está disponible"
     )
     
@@ -77,6 +82,20 @@ def main():
         type=str,
         default=None,
         help="Directorio con imágenes existentes para usar en lugar de generar nuevas"
+    )
+    
+    parser.add_argument(
+        "--voice-reference",
+        type=str,
+        default=None,
+        help="Ruta a un archivo de audio para clonar la voz (requiere --local)"
+    )
+    
+    parser.add_argument(
+        "--background-music",
+        type=str,
+        default=None,
+        help="Ruta a un archivo de música para usar como fondo en el video"
     )
     
     # Analizar argumentos
@@ -88,9 +107,24 @@ def main():
         args.prompt = input("> ")
     
     # Validar prompt
-    if not args.prompt:
-        print("Error: Se requiere un prompt para generar el vídeo")
-        sys.exit(1)
+    if not args.prompt or len(args.prompt.strip()) < 3:
+        print("Por favor proporciona un prompt válido con al menos 3 caracteres")
+        return
+    
+    # Validar que si se usa voice-reference, se use también --local
+    if args.voice_reference and not args.local:
+        print("La opción --voice-reference solo funciona con la opción --local")
+        return
+    
+    # Validar que el archivo de referencia de voz existe
+    if args.voice_reference and not os.path.exists(args.voice_reference):
+        print(f"El archivo de referencia de voz no existe: {args.voice_reference}")
+        return
+    
+    # Validar que el archivo de música de fondo existe
+    if args.background_music and not os.path.exists(args.background_music):
+        print(f"El archivo de música de fondo no existe: {args.background_music}")
+        return
     
     # Inicializar el agente
     try:
@@ -116,14 +150,16 @@ def main():
             local_image=args.local_image or args.local,
             local_voice=args.local_voice or args.local,
             transcribe_audio=False,
-            image_dir=args.image_dir
+            image_dir=args.image_dir,
+            voice_reference=args.voice_reference
         )
         
         # Generar el video
         video_path = agent.generate_video(
             prompt=args.prompt,
             max_words=args.max_words,
-            output_filename=args.output
+            output_filename=args.output,
+            background_music_path=args.background_music
         )
         
         print(f"\n✨ Video generado con éxito: {video_path}")

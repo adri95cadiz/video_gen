@@ -16,7 +16,7 @@ from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 
 
 class ImageGenerator:
-    def __init__(self, api_key=None, use_local_model=False, local_model_path=None, image_dir=None):
+    def __init__(self, api_key=None, use_local_model=False, local_model_path=None, image_dir=None, device="cpu"):
         """
         Inicializa el generador de imágenes.
 
@@ -25,10 +25,13 @@ class ImageGenerator:
             use_local_model: Si debe usar un modelo local en lugar de Stability AI
             local_model_path: Ruta al modelo local (por defecto se usará stabilityai/stable-diffusion-2-1)
             image_dir: Directorio con imágenes existentes para usar en lugar de generar nuevas
+            device: Dispositivo a utilizar (cpu o cuda)
         """
         self.use_local_model = use_local_model
         self.image_dir = image_dir
         self.use_existing_images = image_dir is not None and os.path.isdir(image_dir)
+        self.device = device
+        self.used_images = set()  # Para seguimiento de imágenes ya utilizadas
         
         if self.use_existing_images:
             print(f"Usando imágenes existentes del directorio: {self.image_dir}")
@@ -49,6 +52,7 @@ class ImageGenerator:
                 raise ValueError("Se requiere una API key de Stability AI cuando no se usa modelo local ni imágenes existentes")
             
             self.api_host = 'https://api.stability.ai'
+            self.context = None  # Para almacenar contexto para traducción
 
     def _get_available_images(self):
         """Obtiene la lista de imágenes disponibles en el directorio especificado"""
@@ -134,12 +138,18 @@ class ImageGenerator:
                 return self._generate_with_stability(prompt, output_path, width, height, steps)
         except Exception as e:
             raise Exception(f"Error al generar la imagen: {str(e)}")
-
+    
     def _generate_with_stability(self, prompt, output_path, width, height, steps):
-        """Genera una imagen usando la API de Stability AI"""
+        """Genera una imagen usando la API de Stability AI"""        
         # Usar el modelo más económico de Stability AI
         engine_id = "stable-image"
         level = "core"
+
+        # Añadir contexto si existe
+        if self.context:
+            context_prompt = f"{self.context}: {prompt}"
+        else:
+            context_prompt = prompt
 
         response = requests.post(
             f"{self.api_host}/v2beta/{engine_id}/generate/{level}",
@@ -149,7 +159,7 @@ class ImageGenerator:
             },
             files={"none": ''},
             data={
-                "prompt": f"{prompt}",
+                "prompt": f"{context_prompt}",
                 "negative_prompt": "ugly, blurry, poor quality, distorted, deformed",
                 "output_format": "png",
             },
@@ -211,12 +221,25 @@ class ImageGenerator:
         return output_path
 
     def _select_image_from_directory(self, output_path=None):
-        """Selecciona una imagen aleatoria del directorio especificado"""
+        """
+        Selecciona una imagen del directorio especificado evitando repeticiones
+        cuando sea posible.
+        """
         if not self.available_images:
             raise Exception("No hay imágenes disponibles en el directorio especificado")
         
-        # Seleccionar una imagen aleatoria
-        selected_image = random.choice(self.available_images)
+        # Obtener imágenes que aún no se han usado
+        unused_images = [img for img in self.available_images if img not in self.used_images]
+        
+        # Si todas las imágenes ya se han usado, reiniciar el seguimiento
+        if not unused_images:
+            print("Todas las imágenes ya han sido utilizadas. Reiniciando selección.")
+            self.used_images.clear()
+            unused_images = self.available_images
+        
+        # Seleccionar una imagen no utilizada
+        selected_image = random.choice(unused_images)
+        self.used_images.add(selected_image)  # Marcar como utilizada
         
         # Si no se especifica una ruta de salida, devolvemos la ruta de la imagen seleccionada
         if not output_path:
