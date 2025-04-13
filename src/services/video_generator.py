@@ -160,11 +160,24 @@ class VideoGenerator:
                 ]
                 animation = random.choice(animations)
                 
+                # Añadir fade in al inicio y fade out al final para facilitar transiciones
+                if i == 0:
+                    # Primer clip: solo fade in
+                    fade_filter = "fade=in:0:30"
+                elif i == len(image_paths) - 1:
+                    # Último clip: solo fade out
+                    fade_out_start = max(0, int(audio_duration*25) - 30)
+                    fade_filter = f"fade=out:{fade_out_start}:30"
+                else:
+                    # Clips intermedios: fade in y fade out
+                    fade_out_start = max(0, int(audio_duration*25) - 30)
+                    fade_filter = f"fade=in:0:30,fade=out:{fade_out_start}:30"
+                
                 # Crear comando ffmpeg para combinar imagen, audio, animación y subtítulos
                 cmd = (
                     f"ffmpeg -y -loop 1 -i \"{img_path_escaped}\" -i \"{audio_path_escaped}\" -c:v libx264 "
                     f"-t {audio_duration} -pix_fmt yuv420p -vf \"{animation},scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
-                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,"
+                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,{fade_filter},"
                     f"{drawtext_filters}\" "
                     f"\"{temp_video_escaped}\""
                 )
@@ -189,9 +202,13 @@ class VideoGenerator:
             shutil.copy(temp_videos[0], output_path)
             return output_path
         
-        # Método simplificado para concatenar videos utilizando el método "concat demuxer"
-        # Este método es más compatible y menos propenso a errores
-        concat_file = os.path.join(tempfile.gettempdir(), "concat_list.txt")
+        # Preparar directorios temporales para la concatenación con transiciones
+        temp_dir = os.path.join(tempfile.gettempdir(), f"video_concat_{int(time.time())}")
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # Vamos a crear una concatenación más avanzada usando filtros complejos pero de forma segura
+        # Primero, creamos un .txt para el método simple de concatenación
+        concat_file = os.path.join(temp_dir, "concat_list.txt")
         with open(concat_file, "w") as f:
             for video in temp_videos:
                 # Usar formato de rutas compatible con ffmpeg en Windows (barras normales)
@@ -202,21 +219,43 @@ class VideoGenerator:
         concat_file_escaped = concat_file.replace('\\', '//')
         output_path_escaped = output_path.replace('\\', '//')
         
-        # Ejecutar comando de concatenación simple
-        concat_cmd = f"ffmpeg -y -f concat -safe 0 -i \"{concat_file_escaped}\" -c copy \"{output_path_escaped}\""
+        # Primero generamos una versión sin transiciones para tener una base funcional
+        temp_output = os.path.join(temp_dir, "temp_output.mp4")
+        temp_output_escaped = temp_output.replace('\\', '//')
         
-        # Ejecutar comando
-        print("Combinando clips...")
-        print(f"Comando de concatenación: {concat_cmd}")  # Para depuración
-        os.system(concat_cmd)
+        # Comando para concatenación simple (sin transiciones sofisticadas pero seguro)
+        concat_simple_cmd = f"ffmpeg -y -f concat -safe 0 -i \"{concat_file_escaped}\" -c copy \"{temp_output_escaped}\""
+        print("Generando versión base del video...")
+        os.system(concat_simple_cmd)
+        
+        # Si la concatenación simple funciona, proceder con la versión final
+        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+            # Crear una versión con transiciones suaves usando crossfade
+            final_cmd = f"ffmpeg -y -i \"{temp_output_escaped}\" -vf \"tblend=all_mode=average,framestep=1\" -c:a copy \"{output_path_escaped}\""
+            print("Aplicando transiciones suaves...")
+            os.system(final_cmd)
+        else:
+            # Si la versión con transiciones falla, usar la versión simple
+            shutil.copy(temp_output, output_path)
         
         # Limpiar archivos temporales
         try:
+            # Eliminar el archivo de lista
             if os.path.exists(concat_file):
                 os.remove(concat_file)
+            
+            # Eliminar videos temporales
             for video in temp_videos:
                 if os.path.exists(video):
                     os.remove(video)
+            
+            # Eliminar archivos temporales de concatenación
+            if os.path.exists(temp_output):
+                os.remove(temp_output)
+            
+            # Eliminar directorio temporal
+            if os.path.exists(temp_dir) and temp_dir.startswith(tempfile.gettempdir()):
+                shutil.rmtree(temp_dir)
         except Exception as e:
             print(f"Error al limpiar archivos temporales: {str(e)}")
         
