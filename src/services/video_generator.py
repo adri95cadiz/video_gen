@@ -4,6 +4,7 @@ from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, ImageC
 from pydub import AudioSegment
 import time
 import shutil
+import torch
 
 class VideoGenerator:
     def __init__(self, width=1080, height=1920):

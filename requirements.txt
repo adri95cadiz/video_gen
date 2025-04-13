@@ -7,5 +7,16 @@ pydub==0.25.1
 requests==2.32.3
 tqdm==4.67.1
 
-# Dependencias mínimas para modelos locales simplificados
-torch>=2.0.0
+# Estas versiones están seleccionadas para ser compatibles entre s
+transformers==4.14.1
+tokenizers==0.11.6
+accelerate==0.7.1
+diffusers==0.8.0
+huggingface-hub==0.4.0
+sentencepiece==0.1.96
+
+# Dependencias para modelos locales con versiones que tienen whe=ls precomp2.
+-i https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+torchaudio==2.6.0+cu124

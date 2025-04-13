@@ -88,6 +88,83 @@ class VoiceGenerator:
     
     def _generate_voice_local(self, text, output_path):
         """
+        Genera audio con un modelo TTS local
+        """
+        try:
+            # Importar las librerías para TTS
+            from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
+            import torch
+            import soundfile as sf
+            import numpy as np
+            
+            print(f"Generando audio para: {text[:50]}...")
+            
+            # Verificar si hay GPU disponible
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Modelo TTS usando device: {device}")
+            
+            # Cargar el procesador y el modelo con la configuración adecuada para el dispositivo
+            processor = SpeechT5Processor.from_pretrained("microsoft/speecht5_tts")
+            
+            # IMPORTANTE: Usar float32 para evitar problemas con soundfile
+            # soundfile no admite float16, así que siempre usamos float32
+            dtype = torch.float32
+            
+            # Cargar modelo con la configuración adecuada
+            model = SpeechT5ForTextToSpeech.from_pretrained(
+                "microsoft/speecht5_tts",
+                torch_dtype=dtype
+            ).to(device)
+            
+            vocoder = SpeechT5HifiGan.from_pretrained(
+                "microsoft/speecht5_hifigan",
+                torch_dtype=dtype
+            ).to(device)
+            
+            # Preprocess texto
+            inputs = processor(text=text, return_tensors="pt").to(device)
+            
+            # Cargar embeddings de speaker (voz)
+            speaker_embeddings = torch.randn(1, 512, dtype=dtype).to(device)  # Embedding aleatorio
+            
+            # Generar output de speech
+            with torch.inference_mode():  # Usar inference_mode en lugar de no_grad (más eficiente)
+                speech = model.generate_speech(
+                    inputs["input_ids"], 
+                    speaker_embeddings, 
+                    vocoder=vocoder
+                )
+            
+            # Convertir a numpy para guardar - asegurar que sea float32
+            speech_np = speech.cpu().numpy().astype(np.float32)
+            
+            # Crear un archivo temporal si no se especifica una ruta
+            if not output_path:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                output_path = temp_file.name
+                temp_file.close()
+            
+            # Guardar en un archivo temporal wav primero
+            temp_wav = output_path.replace('.mp3', '.wav')
+            sf.write(temp_wav, speech_np, samplerate=16000)
+            
+            # Convertir de WAV a MP3 usando pydub
+            audio = AudioSegment.from_wav(temp_wav)
+            audio.export(output_path, format="mp3")
+            
+            # Eliminar el archivo temporal wav
+            if os.path.exists(temp_wav):
+                os.remove(temp_wav)
+                
+            return output_path
+            
+        except Exception as e:
+            print(f"Error con modelo TTS local: {str(e)}")
+            print("Usando generador de audio simple como fallback")
+            return self._generate_voice_simplified(text, output_path)
+            
+    def _generate_voice_simplified(self, text, output_path):
+        """
         Genera un audio sintético simple con un tono básico.
         Esta es una alternativa muy básica cuando no tenemos acceso a APIs de TTS.
         """

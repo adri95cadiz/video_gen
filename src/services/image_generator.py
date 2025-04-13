@@ -7,10 +7,9 @@ import tempfile
 import base64
 import json
 
-# Imports para modelo local básico
+# Imports para modelo local de Stable Diffusion
 import torch
-import numpy as np
-from typing import Optional, List
+from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 
 class ImageGenerator:
     def __init__(self, api_key=None, use_local_model=False, local_model_path=None):
@@ -20,12 +19,13 @@ class ImageGenerator:
         Args:
             api_key: API key de Stability AI (opcional)
             use_local_model: Si debe usar un modelo local en lugar de Stability AI
-            local_model_path: Ruta al modelo local (no usado en la implementación básica)
+            local_model_path: Ruta al modelo local (por defecto se usará stabilityai/stable-diffusion-2-1)
         """
         self.use_local_model = use_local_model
         
         if use_local_model:
-            # Usaremos una implementación alternativa simple
+            # Usar modelo local - no necesita API key
+            self.local_model_path = local_model_path or "stabilityai/stable-diffusion-2-1"
             self._setup_local_model()
         else:
             # Usar Stability AI API
@@ -36,14 +36,54 @@ class ImageGenerator:
             self.api_host = 'https://api.stability.ai'
     
     def _setup_local_model(self):
-        """Configura una alternativa simple para generación local de imágenes"""
+        """Configura el modelo local para generación de imágenes"""
         try:
-            print("Usando generación de imágenes local simplificada")
+            print("Usando generación de imágenes local con Diffusers")
+            
             # Verificar si hay GPU disponible
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             print(f"Usando device: {self.device}")
+            
+            if self.device == "cuda":
+                cuda_version = torch.version.cuda
+                print(f"¡CUDA disponible! Versión: {cuda_version}")
+                print(f"Dispositivo GPU: {torch.cuda.get_device_name(0)}")
+            
+            # Importar diffusers
+            from diffusers import StableDiffusionPipeline
+            
+            # Modelo a utilizar - más ligero para CPU
+            model_id = "stabilityai/stable-diffusion-2-1-base"  # Versión más ligera 
+            
+            # Configurar dtype según el dispositivo
+            if self.device == "cuda":
+                dtype = torch.float16  # Usar precisión media en GPU para memoria
+            else:
+                dtype = torch.float32  # Precisión completa en CPU
+            
+            # Cargar el pipeline
+            self.pipe = StableDiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                safety_checker=None  # Desactivar para velocidad (opcional)
+            )
+            self.pipe = self.pipe.to(self.device)
+            
+            # Optimizaciones
+            if self.device == "cuda":
+                print("Aplicando optimizaciones para GPU...")
+                # En GPU usar half precision para VRAM
+                self.pipe.enable_attention_slicing()
+            else:
+                print("Aplicando optimizaciones para CPU...")
+                self.pipe.enable_attention_slicing()
+                # Usar sequential CPU offload para menos memoria
+                self.pipe.enable_sequential_cpu_offload()
+                
         except Exception as e:
-            raise Exception(f"Error al configurar generación de imágenes local: {str(e)}")
+            print(f"Error al configurar modelo de difusión: {str(e)}")
+            print("Volviendo al modo simplificado")
+            self.use_simplified = True
         
     def generate_image(self, prompt, output_path=None, width=1024, height=1024, steps=30):
         """
@@ -116,72 +156,33 @@ class ImageGenerator:
         return output_path
     
     def _generate_with_local_model(self, prompt, output_path, width, height, steps):
-        """
-        Genera una imagen de color aleatorio con el texto como título
-        (alternativa simple a Stable Diffusion)
-        """
+        """Genera una imagen usando el modelo local de Stable Diffusion"""
         # Crear un archivo temporal si no se especifica una ruta
         if not output_path:
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
             output_path = temp_file.name
             temp_file.close()
         
-        # Generar una imagen sintética como alternativa
-        # Creamos una imagen de color aleatorio con el texto como título
+        # Ajustar dimensiones a múltiplos de 8 (requerimiento de Stable Diffusion)
+        width = (width // 8) * 8
+        height = (height // 8) * 8
         
-        # Generar un color aleatorio basado en el texto
-        def text_to_color(text):
-            import hashlib
-            hash_obj = hashlib.md5(text.encode())
-            hash_digest = hash_obj.digest()
-            r = hash_digest[0] % 200 + 30  # Evitar colores muy oscuros
-            g = hash_digest[1] % 200 + 30
-            b = hash_digest[2] % 200 + 30
-            return (r, g, b)
+        # Generar imagen
+        negative_prompt = "ugly, blurry, poor quality, distorted, deformed"
         
-        # Crear una imagen del tamaño especificado
-        color = text_to_color(prompt)
-        img = Image.new('RGB', (width, height), color=color)
-        
-        # Añadir texto si PIL tiene soporte para dibujar
-        try:
-            from PIL import ImageDraw, ImageFont
-            draw = ImageDraw.Draw(img)
-            
-            # Truncar el prompt si es muy largo
-            display_text = prompt[:50] + "..." if len(prompt) > 50 else prompt
-            
-            # Usar una fuente por defecto
-            try:
-                # Intentar usar una fuente del sistema
-                font = ImageFont.truetype("arial.ttf", 20)
-            except:
-                # Usar fuente por defecto
-                font = ImageFont.load_default()
-            
-            # Dibujar el texto centrado en la imagen
-            text_width = font.getbbox(display_text)[2]
-            x = (width - text_width) // 2
-            y = 50  # Margen superior
-            
-            # Dibujar con sombra para mejor legibilidad
-            shadow_color = (0, 0, 0)
-            text_color = (255, 255, 255)
-            
-            # Sombra
-            draw.text((x+2, y+2), display_text, font=font, fill=shadow_color)
-            # Texto
-            draw.text((x, y), display_text, font=font, fill=text_color)
-            
-            # Añadir un texto explicando que es una imagen generada localmente
-            info_text = "Imagen generada localmente (sin usar API)"
-            draw.text((10, height-30), info_text, font=font, fill=text_color)
-            
-        except Exception as e:
-            print(f"No se pudo añadir texto a la imagen: {e}")
+        # Generar la imagen con el pipeline
+        with torch.no_grad():
+            image = self.pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                num_inference_steps=steps,
+                guidance_scale=7.5,
+                width=width,
+                height=height
+            ).images[0]
         
         # Guardar la imagen
-        img.save(output_path)
+        image.save(output_path)
         
         return output_path
     
