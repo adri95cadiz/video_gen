@@ -20,7 +20,8 @@ class ScriptGenerator:
         if use_local_model:
             # Usar generación de texto con modelo local de HuggingFace
             print("Usando generación de texto con modelo local de transformers")
-            self.local_model_path = local_model_path or "microsoft/phi-1_5"
+            # Cambiar el modelo predeterminado a uno más ligero y rápido
+            self.local_model_path = local_model_path or "distilgpt2"
             self._setup_local_model()
         else:
             # Usar OpenAI
@@ -83,6 +84,12 @@ class ScriptGenerator:
         """
         try:
             if self.use_local_model:
+                # Para ahorrar tiempo con el modelo local, usar directamente el generador de plantillas
+                # si la longitud del guión solicitado es corta
+                if max_words <= 150:
+                    print("Usando generador rápido basado en plantillas para guiones cortos")
+                    return self._generate_with_template_model(prompt, max_words)
+                
                 if hasattr(self, 'model_loaded') and self.model_loaded:
                     return self._generate_with_transformer_model(prompt, max_words)
                 else:
@@ -98,47 +105,34 @@ class ScriptGenerator:
     def _generate_with_transformer_model(self, prompt, max_words):
         """Genera un guión usando un modelo de transformers"""
         try:
-            # Construir un prompt completo con instrucciones
-            full_prompt = f"""
-            Escribe un guión breve para un video de YouTube sobre el siguiente tema: "{prompt}".
-            
-            El guión debe:
-            - Ser informativo y directo
-            - Tener aproximadamente {max_words} palabras
-            - Estar en español
-            - Ser apropiado para ser narrado con voz en off
-            - Evitar introducciones largas y ser conciso
-            - Tener un buen ritmo y ser interesante
-            
-            Guión:
-            """
+            # Construir un prompt más corto y directo para mejorar la velocidad
+            full_prompt = f"Escribe un guión breve de {max_words} palabras en español sobre: {prompt}. "
             
             # Tokenizar el prompt
             inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.device)
             
-            # Calcular token máximo basado en max_words (estimado)
-            max_tokens = min(1024, max_words * 2)  # Aproximadamente 2 tokens por palabra
+            # Reducir tokens máximos para mayor velocidad
+            max_tokens = min(512, max_words * 1.5)  # Aproximadamente 1.5 tokens por palabra
             
-            # Generar texto
+            # Generar texto con configuración más eficiente
             with torch.no_grad():
                 outputs = self.model.generate(
                     **inputs,
-                    max_new_tokens=max_tokens,
+                    max_new_tokens=int(max_tokens),
                     do_sample=True,
-                    temperature=0.7,
-                    top_p=0.9,
-                    repetition_penalty=1.2,
+                    temperature=0.8,
+                    top_p=0.92,
+                    top_k=50,
+                    num_beams=1,         # Desactivar beam search para mayor velocidad
+                    repetition_penalty=1.1,
                     pad_token_id=self.tokenizer.eos_token_id
                 )
             
             # Decodificar la salida
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            # Extraer solo el guión (después de "Guión:")
-            if "Guión:" in generated_text:
-                script = generated_text.split("Guión:", 1)[1].strip()
-            else:
-                script = generated_text.replace(full_prompt, "").strip()
+            # Extraer solo el guión (después del prompt)
+            script = generated_text.replace(full_prompt, "").strip()
             
             # Limitar el número de palabras
             words = script.split()

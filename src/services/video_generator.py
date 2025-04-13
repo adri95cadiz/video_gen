@@ -5,6 +5,7 @@ from pydub import AudioSegment
 import time
 import shutil
 import torch
+import random
 
 class VideoGenerator:
     def __init__(self, width=1080, height=1920):
@@ -130,7 +131,7 @@ class VideoGenerator:
                     # Crear el comando drawtext para este fragmento con tiempo de inicio y fin
                     drawtext_cmd = (
                         f"drawtext=text='{fragmento_escapado}':x=(w-text_w)/2:y=h-th-100:"
-                        f"fontsize=52:fontcolor=white:borderw=3:bordercolor=black:"
+                        f"fontsize=60:fontcolor=white:borderw=3:bordercolor=black:"
                         f"box=1:boxcolor=black@0.5:"
                         f"enable='between(t,{tiempo_inicio:.3f},{tiempo_fin:.3f})'"
                     )
@@ -144,10 +145,25 @@ class VideoGenerator:
                 # Concatenar los comandos drawtext con comas para aplicar filtros en secuencia
                 drawtext_filters = ",".join(drawtext_commands)
                 
-                # Crear comando ffmpeg para combinar imagen, audio y usar drawtext directamente
+                # Seleccionar una animación aleatoria para la imagen
+                animations = [
+                    # Zoom lento hacia adentro
+                    f"zoompan=z='min(zoom+0.0015,1.3)':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    # Zoom lento hacia afuera
+                    f"zoompan=z='if(lte(on,1),1.3,max(1.3-(on)*0.0015,1))':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    # Movimiento lento hacia arriba
+                    f"zoompan=z=1.1:y='ih-ih*0.1-on*0.0007':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    # Movimiento lento hacia abajo
+                    f"zoompan=z=1.1:y='on*0.0007':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    # Movimiento diagonal
+                    f"zoompan=z=1.1:x='iw*0.05+on*0.0005':y='ih*0.05+on*0.0004':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                ]
+                animation = random.choice(animations)
+                
+                # Crear comando ffmpeg para combinar imagen, audio, animación y subtítulos
                 cmd = (
                     f"ffmpeg -y -loop 1 -i \"{img_path_escaped}\" -i \"{audio_path_escaped}\" -c:v libx264 "
-                    f"-t {audio_duration} -pix_fmt yuv420p -vf \"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
+                    f"-t {audio_duration} -pix_fmt yuv420p -vf \"{animation},scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
                     f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,"
                     f"{drawtext_filters}\" "
                     f"\"{temp_video_escaped}\""
@@ -173,7 +189,8 @@ class VideoGenerator:
             shutil.copy(temp_videos[0], output_path)
             return output_path
         
-        # Combinar videos con ffmpeg
+        # Método simplificado para concatenar videos utilizando el método "concat demuxer"
+        # Este método es más compatible y menos propenso a errores
         concat_file = os.path.join(tempfile.gettempdir(), "concat_list.txt")
         with open(concat_file, "w") as f:
             for video in temp_videos:
@@ -185,7 +202,7 @@ class VideoGenerator:
         concat_file_escaped = concat_file.replace('\\', '//')
         output_path_escaped = output_path.replace('\\', '//')
         
-        # Crear comando de concatenación
+        # Ejecutar comando de concatenación simple
         concat_cmd = f"ffmpeg -y -f concat -safe 0 -i \"{concat_file_escaped}\" -c copy \"{output_path_escaped}\""
         
         # Ejecutar comando
