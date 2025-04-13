@@ -83,42 +83,68 @@ class VideoGenerator:
                 # Obtener la duración del audio
                 audio_duration = self.get_audio_duration(audio_path)
                 
-                # Crear un archivo temporal para el subtítulo (formato SRT)
-                srt_path = os.path.join(tempfile.gettempdir(), f"subtitle_{i}.srt")
-                with open(srt_path, "w", encoding="utf-8") as f:
-                    # Formato SRT: número, tiempo inicio --> tiempo fin, texto
-                    f.write(f"1\n00:00:00,000 --> 00:{int(audio_duration//60):02d}:{audio_duration%60:06.3f}\n{sentences[i]}\n\n")
+                # Escapar texto para ffmpeg (reemplazar comillas, etc.)
+                texto_subtitulo = sentences[i].replace("'", "\\'").replace('"', '\\"')
+                
+                # Dividir el texto en fragmentos cortos basados en número de caracteres
+                palabras = texto_subtitulo.split()
+                fragmentos = []
+                fragmento_actual = []
+                caracteres_actual = 0
+                
+                # Máximo de caracteres por fragmento (aproximadamente 20-25 caracteres)
+                max_caracteres_por_fragmento = 25
+                
+                for palabra in palabras:
+                    # Calcular caracteres con la nueva palabra (incluyendo espacios)
+                    nuevos_caracteres = caracteres_actual + len(palabra) + (1 if fragmento_actual else 0)
+                    
+                    if nuevos_caracteres > max_caracteres_por_fragmento and fragmento_actual:
+                        # Guardar el fragmento actual y comenzar uno nuevo
+                        fragmentos.append(" ".join(fragmento_actual))
+                        fragmento_actual = [palabra]
+                        caracteres_actual = len(palabra)
+                    else:
+                        # Añadir la palabra al fragmento actual
+                        fragmento_actual.append(palabra)
+                        caracteres_actual = nuevos_caracteres
+                
+                # Añadir el último fragmento si queda algo
+                if fragmento_actual:
+                    fragmentos.append(" ".join(fragmento_actual))
+                
+                # Variables para controlar el tiempo
+                duracion_por_fragmento = audio_duration / len(fragmentos)
+                
+                # Crear múltiples comandos de drawtext para cada fragmento con diferentes posiciones y tiempos
+                drawtext_commands = []
+                
+                for j, fragmento in enumerate(fragmentos):
+                    # Calcular el tiempo para cada fragmento en segundos
+                    tiempo_inicio = j * duracion_por_fragmento
+                    tiempo_fin = (j + 1) * duracion_por_fragmento
+                    
+                    # Escapar el texto para FFmpeg
+                    fragmento_escapado = fragmento.replace("'", "\\'").replace('"', '\\"')
+                    
+                    # Crear el comando drawtext para este fragmento con tiempo de inicio y fin
+                    drawtext_cmd = (
+                        f"drawtext=text='{fragmento_escapado}':x=(w-text_w)/2:y=h-th-100:"
+                        f"fontsize=52:fontcolor=white:borderw=3:bordercolor=black:"
+                        f"box=1:boxcolor=black@0.5:"
+                        f"enable='between(t,{tiempo_inicio:.3f},{tiempo_fin:.3f})'"
+                    )
+                    drawtext_commands.append(drawtext_cmd.replace('\\', '/'))
                 
                 # Corregir la ruta para Windows reemplazando barras invertidas y escapando adecuadamente
                 img_path_escaped = img_path.replace('\\', '/')
                 audio_path_escaped = audio_path.replace('\\', '/')
                 temp_video_escaped = temp_video.replace('\\', '/')
                 
-                # Escapar texto para ffmpeg (reemplazar comillas, etc.)
-                texto_subtitulo = sentences[i].replace("'", "\\'").replace('"', '\\"')
-                
-                # Dividir el texto en líneas más cortas para mejor legibilidad
-                lineas_subtitulos = self._dividir_texto_en_lineas(texto_subtitulo, 40)
-                
-                # Crear múltiples comandos de drawtext para cada línea con diferentes posiciones verticales
-                drawtext_commands = []
-                line_height = 55  # Altura estimada para cada línea con tamaño de fuente 48
-                
-                for idx, linea in enumerate(lineas_subtitulos):
-                    # Calcular la posición vertical para cada línea
-                    y_position = f"h-{(len(lineas_subtitulos)-idx)*line_height + 100}"
-                    
-                    # Crear el comando drawtext para esta línea
-                    drawtext_cmd = (
-                        f"drawtext=text='{linea}':x=(w-text_w)/2:y={y_position}:"
-                        f"fontsize=48:fontcolor=white:font=bold:box=1:boxcolor=black@0.8:boxborderw=10"
-                    )
-                    drawtext_commands.append(drawtext_cmd)
-                
                 # Concatenar los comandos drawtext con comas para aplicar filtros en secuencia
                 drawtext_filters = ",".join(drawtext_commands)
                 
-                # Crear comando ffmpeg para combinar imagen, audio y usar drawtext en lugar de subtitles
+                # Crear comando ffmpeg para combinar imagen, audio y usar drawtext directamente
                 cmd = (
                     f"ffmpeg -y -loop 1 -i \"{img_path_escaped}\" -i \"{audio_path_escaped}\" -c:v libx264 "
                     f"-t {audio_duration} -pix_fmt yuv420p -vf \"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
@@ -134,10 +160,6 @@ class VideoGenerator:
                 
                 if os.path.exists(temp_video):
                     temp_videos.append(temp_video)
-                    
-                # Eliminar archivo temporal de subtítulos
-                if os.path.exists(srt_path):
-                    os.remove(srt_path)
                     
             except Exception as e:
                 print(f"Error al procesar clip {i}: {str(e)}")
@@ -183,41 +205,21 @@ class VideoGenerator:
         
         return output_path
     
-    def _dividir_texto_en_lineas(self, texto, max_caracteres_por_linea=40):
+    def _formatear_tiempo(self, segundos):
         """
-        Divide un texto largo en líneas para una mejor visualización de subtítulos
+        Formatea un tiempo en segundos al formato HH:MM:SS,mmm para subtítulos SRT
         
         Args:
-            texto: Texto a dividir
-            max_caracteres_por_linea: Número máximo de caracteres por línea
+            segundos: Tiempo en segundos
             
         Returns:
-            list: Lista de líneas de texto
+            str: Tiempo formateado
         """
-        palabras = texto.split()
-        lineas = []
-        linea_actual = []
-        longitud_actual = 0
-        
-        for palabra in palabras:
-            # +1 por el espacio entre palabras
-            nueva_longitud = longitud_actual + len(palabra) + (1 if longitud_actual > 0 else 0)
-            
-            if nueva_longitud > max_caracteres_por_linea and longitud_actual > 0:
-                # Agregar la línea actual y empezar una nueva
-                lineas.append(" ".join(linea_actual))
-                linea_actual = [palabra]
-                longitud_actual = len(palabra)
-            else:
-                # Agregar palabra a la línea actual
-                linea_actual.append(palabra)
-                longitud_actual = nueva_longitud
-        
-        # Agregar la última línea
-        if linea_actual:
-            lineas.append(" ".join(linea_actual))
-        
-        return lineas
+        horas = int(segundos // 3600)
+        minutos = int((segundos % 3600) // 60)
+        segundos_restantes = segundos % 60
+        milisegundos = int((segundos_restantes - int(segundos_restantes)) * 1000)
+        return f"{horas:02d}:{minutos:02d}:{int(segundos_restantes):02d},{milisegundos:03d}"
     
     def clean_temp_files(self, file_paths):
         """

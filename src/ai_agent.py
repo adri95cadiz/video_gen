@@ -11,7 +11,7 @@ from src.services.video_generator import VideoGenerator
 class AIVideoAgent:
     def __init__(self, llm_provider=None, image_model=None, voice_model=None, 
                  local_script=False, local_image=False, local_voice=False, music_reference=None, output_dir="videos",
-                 transcribe_audio=False):
+                 transcribe_audio=False, image_dir=None):
         """
         Inicializa el agente de IA para generación de videos.
         
@@ -25,6 +25,7 @@ class AIVideoAgent:
             music_reference: Ruta a archivo de música de referencia
             output_dir: Directorio de salida para los videos
             transcribe_audio: Si se debe transcribir audio de entrada
+            image_dir: Directorio con imágenes existentes para usar en lugar de generar nuevas
         """
         # Cargar variables de entorno desde el archivo .env
         load_dotenv()
@@ -44,9 +45,9 @@ class AIVideoAgent:
 
         if local_image:
             imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-2-1")
-            self.image_generator = ImageGenerator(use_local_model=True, local_model_path=imagen_model_path)
+            self.image_generator = ImageGenerator(use_local_model=True, local_model_path=imagen_model_path, image_dir=image_dir)
         else:
-            self.image_generator = ImageGenerator()
+            self.image_generator = ImageGenerator(image_dir=image_dir)
 
         if local_voice:
             self.voice_generator = VoiceGenerator(use_local_model=True)

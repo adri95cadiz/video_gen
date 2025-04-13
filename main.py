@@ -72,6 +72,13 @@ def main():
         help="Forzar uso de GPU si está disponible"
     )
     
+    parser.add_argument(
+        "--image-dir",
+        type=str,
+        default=None,
+        help="Directorio con imágenes existentes para usar en lugar de generar nuevas"
+    )
+    
     # Analizar argumentos
     args = parser.parse_args()
     
@@ -97,12 +104,19 @@ def main():
             else:
                 print(f"GPU disponible: {torch.cuda.get_device_name(0)}")
         
+        # Verificar si se especificó un directorio de imágenes y si existe
+        if args.image_dir and not os.path.isdir(args.image_dir):
+            print(f"Advertencia: El directorio de imágenes especificado no existe: {args.image_dir}")
+            print("Se generarán imágenes según el prompt.")
+            args.image_dir = None
+        
         # Crear el agente usando modelos locales si se especifica
         agent = AIVideoAgent(
             local_script=args.local_script or args.local,
             local_image=args.local_image or args.local,
             local_voice=args.local_voice or args.local,
-            transcribe_audio=False
+            transcribe_audio=False,
+            image_dir=args.image_dir
         )
         
         # Generar el video

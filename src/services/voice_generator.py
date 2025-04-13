@@ -39,10 +39,6 @@ class VoiceGenerator:
         if not use_local_model and not self.api_key:
             logger.warning("No se encontró API key para ElevenLabs, se usará el modelo local como fallback")
             self.use_local_model = True
-        
-        # Cargar modelos específicos para uso local si es necesario
-        if use_local_model:
-            logger.info("Configurando generador de voz con modelos locales")
 
     def generate_voice(self, text, output_file, lang="es"):
         """
