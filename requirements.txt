@@ -5,4 +5,7 @@ pillow==10.4.0
 moviepy==2.1.2
 pydub==0.25.1
 requests==2.32.3
-tqdm==4.67.1 
+tqdm==4.67.1
+
+# Dependencias mínimas para modelos locales simplificados
+torch>=2.0.0

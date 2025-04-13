@@ -42,6 +42,12 @@ def main():
         help="Directorio donde guardar los videos generados (por defecto: videos)"
     )
     
+    parser.add_argument(
+        "--local", 
+        action="store_true",
+        help="Usar modelos locales en lugar de APIs externas (evita costes de API)"
+    )
+    
     # Analizar argumentos
     args = parser.parse_args()
     
@@ -57,7 +63,8 @@ def main():
     
     # Inicializar el agente
     try:
-        agent = AIVideoAgent(output_dir=args.output_dir)
+        # Crear el agente usando modelos locales si se especifica
+        agent = AIVideoAgent(output_dir=args.output_dir, use_local_models=args.local)
         
         # Generar el video
         video_path = agent.generate_video(

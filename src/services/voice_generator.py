@@ -2,20 +2,47 @@ import os
 import tempfile
 from elevenlabs import save
 from elevenlabs.client import ElevenLabs
+import wave
+import struct
+import math
+import numpy as np
+from pydub import AudioSegment
+import io
 
 class VoiceGenerator:
-    def __init__(self, api_key=None, voice_id=None):
-        self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
-        self.voice_id = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel (voice de ElevenLabs)
+    def __init__(self, api_key=None, voice_id=None, use_local_model=False):
+        """
+        Inicializa el generador de voz
         
-        if not self.api_key:
-            raise ValueError("Se requiere una API key de ElevenLabs")
+        Args:
+            api_key: API key de ElevenLabs (opcional)
+            voice_id: ID de la voz a usar (opcional)
+            use_local_model: Si se debe usar generación de voz local
+        """
+        self.use_local_model = use_local_model
         
-        self.client = ElevenLabs(api_key=self.api_key)
+        if not use_local_model:
+            # Intentar usar ElevenLabs si hay API key
+            self.api_key = api_key or os.environ.get("ELEVENLABS_API_KEY")
+            self.voice_id = voice_id or os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel (voice de ElevenLabs)
+            
+            if not self.api_key:
+                print("No se encontró API key de ElevenLabs, cambiando a generación local")
+                self.use_local_model = True
+            else:
+                try:
+                    self.client = ElevenLabs(api_key=self.api_key)
+                except Exception as e:
+                    print(f"Error al inicializar ElevenLabs: {e}")
+                    print("Cambiando a generación local")
+                    self.use_local_model = True
+        
+        if self.use_local_model:
+            print("Usando generación de voz sintética local")
             
     def generate_voice(self, text, output_path=None):
         """
-        Genera audio a partir de texto usando ElevenLabs
+        Genera audio a partir de texto
         
         Args:
             text: El texto a convertir en voz
@@ -25,26 +52,101 @@ class VoiceGenerator:
             str: Ruta al archivo de audio generado
         """
         try:
-            # Generar audio
-            audio = self.client.text_to_speech.convert(
-                text=text,
-                voice_id=self.voice_id,
-                model="eleven_multilingual_v2",  # Modelo más económico
-                output_format="mp3_44100_128",
-            )
-            
-            # Guardar el audio
-            if not output_path:
-                # Crear un archivo temporal si no se especifica una ruta
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-                output_path = temp_file.name
-                temp_file.close()
-            
-            save(audio, output_path)
-            return output_path
-            
+            if self.use_local_model:
+                return self._generate_voice_local(text, output_path)
+            else:
+                return self._generate_voice_elevenlabs(text, output_path)
         except Exception as e:
-            raise Exception(f"Error al generar la voz: {str(e)}")
+            # Si falla con ElevenLabs, intentar con la versión local
+            if not self.use_local_model:
+                print(f"Error al generar voz con ElevenLabs: {e}")
+                print("Intentando con generación local")
+                self.use_local_model = True
+                return self._generate_voice_local(text, output_path)
+            else:
+                raise Exception(f"Error al generar la voz: {str(e)}")
+    
+    def _generate_voice_elevenlabs(self, text, output_path):
+        """Genera audio usando ElevenLabs"""
+        # Generar audio
+        audio = self.client.text_to_speech.convert(
+            text=text,
+            voice_id=self.voice_id,
+            model_id="eleven_multilingual_v2",  # Modelo más económico
+            output_format="mp3_44100_128",
+        )
+        
+        # Guardar el audio
+        if not output_path:
+            # Crear un archivo temporal si no se especifica una ruta
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+            output_path = temp_file.name
+            temp_file.close()
+        
+        save(audio, output_path)
+        return output_path
+    
+    def _generate_voice_local(self, text, output_path):
+        """
+        Genera un audio sintético simple con un tono básico.
+        Esta es una alternativa muy básica cuando no tenemos acceso a APIs de TTS.
+        """
+        # Crear un archivo temporal si no se especifica una ruta
+        if not output_path:
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+            output_path = temp_file.name
+            temp_file.close()
+            
+        # Configurar parámetros de audio
+        duration = len(text) * 0.085  # Aproximadamente 85ms por carácter
+        sample_rate = 44100
+        frequency = 220.0  # Frecuencia base (A3)
+        
+        # Generar datos de audio
+        samples = int(duration * sample_rate)
+        audio_data = []
+        
+        # Generar una onda sinusoidal básica que varía en función del texto
+        for i in range(samples):
+            t = i / sample_rate
+            # Variar la frecuencia basado en el texto (muy básico)
+            char_position = min(int(t / duration * len(text)), len(text) - 1)
+            freq_variation = (ord(text[char_position]) % 20) - 10
+            
+            # Generar onda sinusoidal
+            value = math.sin(2 * math.pi * (frequency + freq_variation) * t)
+            
+            # Añadir envolvente para suavizar inicio y fin
+            fade_time = 0.1
+            if t < fade_time:
+                value *= t / fade_time
+            elif t > duration - fade_time:
+                value *= (duration - t) / fade_time
+                
+            # Añadir variaciones de amplitud basadas en el texto
+            volume = 0.8 + 0.2 * math.sin(2 * math.pi * 0.5 * t)
+            value *= volume
+            
+            # Convertir a entero de 16 bits
+            audio_data.append(int(value * 32767))
+        
+        # Crear un BytesIO para guardar el audio WAV
+        with io.BytesIO() as wav_io:
+            # Crear archivo WAV
+            with wave.open(wav_io, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 2 bytes (16 bits)
+                wav_file.setframerate(sample_rate)
+                # Empaquetar los datos como valores de 16 bits
+                wav_data = struct.pack('<%dh' % len(audio_data), *audio_data)
+                wav_file.writeframes(wav_data)
+            
+            # Convertir de WAV a MP3 usando pydub
+            wav_io.seek(0)
+            audio = AudioSegment.from_wav(wav_io)
+            audio.export(output_path, format="mp3")
+        
+        return output_path
     
     def generate_voice_for_sentences(self, sentences, output_dir="temp_audio"):
         """

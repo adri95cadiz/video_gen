@@ -1,9 +1,6 @@
 import os
 import tempfile
-from moviepy import *
-from moviepy.audio.AudioClip import AudioClip
-from moviepy.video.VideoClip import TextClip
-import numpy as np
+from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips, ImageClip
 from pydub import AudioSegment
 import time
 import shutil
@@ -57,81 +54,83 @@ class VideoGenerator:
     
     def create_video(self, image_paths, audio_paths, sentences, output_path, bg_color="black"):
         """
-        Crea un video combinando imágenes, audio y subtítulos
+        Crea un video combinando imágenes y audio (versión simplificada)
         
         Args:
             image_paths: Lista de rutas a las imágenes
             audio_paths: Lista de rutas a los archivos de audio
-            sentences: Lista de oraciones para los subtítulos
+            sentences: Lista de oraciones para los subtítulos (no usados en versión simple)
             output_path: Ruta de salida para el video
-            bg_color: Color de fondo
+            bg_color: Color de fondo (no usado en versión simple)
             
         Returns:
             str: Ruta al video generado
         """
-        if len(image_paths) != len(audio_paths) or len(audio_paths) != len(sentences):
-            raise ValueError("Las listas de imágenes, audios y oraciones deben tener la misma longitud")
+        print("Usando generador de video simplificado para modelos locales")
         
-        clips = []
-        for i, (img_path, audio_path, text) in enumerate(zip(image_paths, audio_paths, sentences)):
-            # Obtener duración del audio
-            duration = self.get_audio_duration(audio_path)
-            
-            # Crear clip de imagen
-            img_clip = ImageClip(img_path, duration=duration)
-            img_clip = img_clip.resize(height=self.height)
-            
-            # Centrar la imagen horizontalmente
-            img_clip = img_clip.set_position('center')
-            
-            # Crear subtítulo
-            fontsize = 40
-            txt_clip = TextClip(text, fontsize=fontsize, color='white', bg_color='rgba(0,0,0,0.5)', 
-                               size=(self.width-100, None), method='caption')
-            txt_clip = txt_clip.set_position(('center', 'bottom')).set_duration(duration)
-            
-            # Crear clip compuesto
-            audio_clip = AudioFileClip(audio_path)
-            video_clip = CompositeVideoClip([img_clip, txt_clip], size=(self.width, self.height), bg_color=bg_color)
-            video_clip = video_clip.set_audio(audio_clip)
-            
-            # Añadir transición de fundido (excepto para el primer clip)
-            if i > 0:
-                video_clip = video_clip.crossfadein(0.5)
+        if len(image_paths) != len(audio_paths):
+            raise ValueError("Las listas de imágenes y audios deben tener la misma longitud")
+        
+        # Crear archivos de video temporales a partir de cada par imagen-audio
+        temp_videos = []
+        
+        for i, (img_path, audio_path) in enumerate(zip(image_paths, audio_paths)):
+            try:
+                # Crear un archivo de video temporal
+                temp_video = os.path.join(tempfile.gettempdir(), f"temp_video_{i}.mp4")
                 
-            clips.append(video_clip)
-        
-        # Concatenar todos los clips
-        final_clip = concatenate_videoclips(clips, method="compose")
-        
-        # Añadir transiciones de entrada y salida
-        final_clip = final_clip.fadein(0.5).fadeout(0.5)
-        
-        # Exportar video
-        try:
-            temp_dir = tempfile.gettempdir()
-            # Crear directorio para la salida si no existe
-            output_dir = os.path.dirname(output_path)
-            if output_dir and not os.path.exists(output_dir):
-                os.makedirs(output_dir, exist_ok=True)
+                # Obtener la duración del audio
+                audio_duration = self.get_audio_duration(audio_path)
                 
-            # Usar configuración de baja bitrate para reducir el tamaño
-            final_clip.write_videofile(
-                output_path,
-                codec='libx264',
-                audio_codec='aac',
-                bitrate='2000k',
-                audio_bitrate='128k',
-                fps=24,
-                threads=2,
-                preset='fast',  # más rápido que 'medium' pero menos compresión
-                temp_audiofile=os.path.join(temp_dir, "temp_audio.m4a"),
-                remove_temp=True
-            )
-            
+                # Crear comando ffmpeg para combinar imagen y audio
+                cmd = (
+                    f"ffmpeg -y -loop 1 -i \"{img_path}\" -i \"{audio_path}\" -c:v libx264 "
+                    f"-t {audio_duration} -pix_fmt yuv420p -vf \"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
+                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2\" \"{temp_video}\""
+                )
+                
+                # Ejecutar comando
+                print(f"Procesando clip {i+1}/{len(image_paths)}...")
+                os.system(cmd)
+                
+                if os.path.exists(temp_video):
+                    temp_videos.append(temp_video)
+            except Exception as e:
+                print(f"Error al procesar clip {i}: {str(e)}")
+        
+        # Si no se generaron videos temporales, salir
+        if not temp_videos:
+            raise Exception("No se pudieron generar videos temporales")
+        
+        # Si solo hay un video, usarlo directamente
+        if len(temp_videos) == 1:
+            shutil.copy(temp_videos[0], output_path)
             return output_path
+        
+        # Combinar videos con ffmpeg
+        concat_file = os.path.join(tempfile.gettempdir(), "concat_list.txt")
+        with open(concat_file, "w") as f:
+            for video in temp_videos:
+                f.write(f"file '{video}'\n")
+        
+        # Crear comando de concatenación
+        concat_cmd = f"ffmpeg -y -f concat -safe 0 -i \"{concat_file}\" -c copy \"{output_path}\""
+        
+        # Ejecutar comando
+        print("Combinando clips...")
+        os.system(concat_cmd)
+        
+        # Limpiar archivos temporales
+        try:
+            if os.path.exists(concat_file):
+                os.remove(concat_file)
+            for video in temp_videos:
+                if os.path.exists(video):
+                    os.remove(video)
         except Exception as e:
-            raise Exception(f"Error al crear el video: {str(e)}")
+            print(f"Error al limpiar archivos temporales: {str(e)}")
+        
+        return output_path
     
     def clean_temp_files(self, file_paths):
         """

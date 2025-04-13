@@ -9,24 +9,41 @@ from src.services.image_generator import ImageGenerator
 from src.services.video_generator import VideoGenerator
 
 class AIVideoAgent:
-    def __init__(self, output_dir="videos"):
+    def __init__(self, output_dir="videos", use_local_models=False):
         """
         Inicializa el agente de IA para generar videos
         
         Args:
             output_dir: Directorio donde se guardarán los videos generados
+            use_local_models: Si se deben usar modelos locales en lugar de APIs externas
         """
         # Cargar variables de entorno desde el archivo .env
         load_dotenv()
+        
+        # Configurar si usar modelos locales
+        self.use_local_models = use_local_models
         
         # Configurar directorios
         self.output_dir = output_dir or os.environ.get("OUTPUT_DIRECTORY", "videos")
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Inicializar servicios
-        self.script_generator = ScriptGenerator()
-        self.voice_generator = VoiceGenerator()
-        self.image_generator = ImageGenerator()
+        if use_local_models:
+            print("🔄 Configurando con modelos locales (sin costes de API)...")
+            # Usar modelos locales (path del modelo puede especificarse en .env)
+            texto_model_path = os.environ.get("LOCAL_TEXT_MODEL_PATH", "tiiuae/falcon-7b-instruct")
+            imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-2-1")
+            
+            self.script_generator = ScriptGenerator(use_local_model=True, local_model_path=texto_model_path)
+            self.image_generator = ImageGenerator(use_local_model=True, local_model_path=imagen_model_path)
+            # También usar modo local para voz
+            self.voice_generator = VoiceGenerator(use_local_model=True)
+        else:
+            # Usar APIs externas (OpenAI, Stability AI)
+            self.script_generator = ScriptGenerator()
+            self.image_generator = ImageGenerator()
+            # ElevenLabs puede fallar si no hay API key, se manejará internamente
+            self.voice_generator = VoiceGenerator()
         
         # Configuración del video
         width = int(os.environ.get("DEFAULT_VIDEO_WIDTH", 1080))
@@ -66,6 +83,11 @@ class AIVideoAgent:
         """
         try:
             print("🎬 Iniciando generación de video...")
+            if self.use_local_models:
+                print("💻 Utilizando modelos locales (sin costes de API)")
+            else:
+                print("🌐 Utilizando APIs externas (OpenAI, Stability AI)")
+                
             start_time = time.time()
             
             # Limpiar directorios temporales
