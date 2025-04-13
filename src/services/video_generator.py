@@ -246,7 +246,7 @@ class VideoGenerator:
             # y asegurarse que dura lo mismo que el video
             audio_mix_cmd = (
                 f"ffmpeg -y -i \"{temp_output_escaped}\" -i \"{bg_music_escaped}\" "
-                f"-filter_complex \"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.1[bg];"
+                f"-filter_complex \"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.2[bg];"
                 f"[0:a][bg]amix=inputs=2:duration=first,pan=stereo|c0<c0+c2|c1<c1+c3[a]\" "
                 f"-map 0:v -map \"[a]\" -c:v copy -c:a aac -b:a 192k -shortest "
                 f"\"{video_with_music_escaped}\""
