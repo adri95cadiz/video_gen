@@ -1,22 +1,39 @@
-python-dotenv==1.0.0
-openai==1.73.0
+python-dotenv>=1.0.0
+openai>=1.4.0
 elevenlabs==1.56.0
-pillow==10.4.0
-moviepy==2.1.2
-pydub==0.25.1
-requests==2.32.3
+pillow>=10.1.0
+moviepy>=1.0.3
+pydub>=0.25.1
+requests>=2.31.0
 tqdm==4.67.1
 
-# Estas versiones están seleccionadas para ser compatibles entre s
-transformers==4.14.1
+# Estas versiones están seleccionadas para ser compatibles entre sí
+transformers>=4.36.0
 tokenizers==0.11.6
-accelerate==0.7.1
+accelerate>=0.27.0
 diffusers==0.8.0
-huggingface-hub==0.4.0
-sentencepiece==0.1.96
+huggingface_hub>=0.20.0
+sentencepiece>=0.2.0
 
-# Dependencias para modelos locales con versiones que tienen whe=ls precomp2.
+# Dependencias para modelos locales con versiones que tienen wheels precompilados
 -i https://download.pytorch.org/whl/cu124
-torch==2.6.0+cu124
+torch>=2.1.0
 torchvision==0.21.0+cu124
 torchaudio==2.6.0+cu124
+
+# Dependencias para modelos locales
+transformers>=4.25.0
+diffusers>=0.14.0
+accelerate>=0.19.0
+safetensors>=0.3.1
+soundfile>=0.12.1
+
+# TTS para español
+pyttsx3>=2.90
+librosa>=0.10.1
+langdetect>=1.0.9
+
+# Additional dependencies
+ffmpeg-python>=0.2.0
+stability-sdk>=0.8.5
+speechrecognition>=3.10.0

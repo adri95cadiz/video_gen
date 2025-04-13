@@ -47,6 +47,30 @@ def main():
         action="store_true",
         help="Usar modelos locales en lugar de APIs externas (evita costes de API)"
     )
+
+    parser.add_argument(
+        "--local-script",
+        action="store_true",
+        help="Usar modelo local para generar el guión"
+    )
+    
+    parser.add_argument(
+        "--local-image",
+        action="store_true",
+        help="Usar modelo local para generar las imágenes"
+    )
+
+    parser.add_argument(
+        "--local-voice",
+        action="store_true",
+        help="Usar modelo local para generar la voz"
+    )    
+    
+    parser.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Forzar uso de GPU si está disponible"
+    )
     
     # Analizar argumentos
     args = parser.parse_args()
@@ -63,8 +87,23 @@ def main():
     
     # Inicializar el agente
     try:
+        # Verificar si hay GPU disponible
+        if args.gpu:
+            import torch
+            if not torch.cuda.is_available():
+                print("Advertencia: Se solicitó usar GPU pero no se detectó ninguna disponible.")
+                print("Verificar que PyTorch esté instalado con soporte CUDA y que los drivers estén actualizados.")
+                raise Exception("No hay GPU disponible")
+            else:
+                print(f"GPU disponible: {torch.cuda.get_device_name(0)}")
+        
         # Crear el agente usando modelos locales si se especifica
-        agent = AIVideoAgent(output_dir=args.output_dir, use_local_models=args.local)
+        agent = AIVideoAgent(
+            local_script=args.local_script or args.local,
+            local_image=args.local_image or args.local,
+            local_voice=args.local_voice or args.local,
+            transcribe_audio=False
+        )
         
         # Generar el video
         video_path = agent.generate_video(

@@ -2,6 +2,8 @@ import os
 import re
 import openai
 import random
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, GPT2Tokenizer
 
 class ScriptGenerator:
     def __init__(self, api_key=None, use_local_model=False, local_model_path=None):
@@ -11,13 +13,15 @@ class ScriptGenerator:
         Args:
             api_key: API key de OpenAI (opcional)
             use_local_model: Si debe usar un modelo local en lugar de OpenAI
-            local_model_path: Ruta al modelo local (no usado en la implementación simplificada)
+            local_model_path: Ruta al modelo local o nombre del modelo en Hugging Face
         """
         self.use_local_model = use_local_model
         
         if use_local_model:
-            # Usar generación de texto local simplificada
-            print("Usando generación de texto local simplificada")
+            # Usar generación de texto con modelo local de HuggingFace
+            print("Usando generación de texto con modelo local de transformers")
+            self.local_model_path = local_model_path or "microsoft/phi-1_5"
+            self._setup_local_model()
         else:
             # Usar OpenAI
             self.api_key = api_key or os.environ.get("OPENAI_API_KEY")
@@ -26,6 +30,44 @@ class ScriptGenerator:
             
             # Inicializar el cliente de OpenAI
             self.client = openai.OpenAI(api_key=self.api_key)
+    
+    def _setup_local_model(self):
+        """Configura el modelo local para la generación de texto"""
+        try:
+            # Verificar disponibilidad de GPU
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Inicializando modelo para generación de texto en {self.device}")
+            
+            # Cargar modelo y tokenizador
+            try:
+                # Intentar primero con un modelo más pequeño y optimizado para español
+                self.tokenizer = AutoTokenizer.from_pretrained(self.local_model_path, 
+                                                               trust_remote_code=True)
+                self.model = AutoModelForCausalLM.from_pretrained(self.local_model_path, 
+                                                                  torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                                                                  device_map="auto" if self.device == "cuda" else None,
+                                                                  trust_remote_code=True)
+                self.model_loaded = True
+                print(f"Modelo de texto cargado correctamente: {self.local_model_path}")
+            except Exception as e:
+                print(f"Error al cargar el modelo {self.local_model_path}: {e}")
+                # Fallback a GPT-2 en español si está disponible
+                try:
+                    print("Intentando cargar modelo de respaldo...")
+                    fallback_model = "DeepESP/gpt2-spanish"
+                    self.tokenizer = AutoTokenizer.from_pretrained(fallback_model)
+                    self.model = AutoModelForCausalLM.from_pretrained(fallback_model, 
+                                                                      torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                                                                      device_map="auto" if self.device == "cuda" else None)
+                    self.model_loaded = True
+                    print(f"Modelo de respaldo cargado: {fallback_model}")
+                except Exception as e2:
+                    print(f"No se pudo cargar el modelo de respaldo: {e2}")
+                    self.model_loaded = False
+            
+        except Exception as e:
+            print(f"Error al configurar el modelo: {str(e)}")
+            self.model_loaded = False
     
     def generate_script(self, prompt, max_words=200, model="gpt-3.5-turbo"):
         """
@@ -41,11 +83,74 @@ class ScriptGenerator:
         """
         try:
             if self.use_local_model:
-                return self._generate_with_local_model(prompt, max_words)
+                if hasattr(self, 'model_loaded') and self.model_loaded:
+                    return self._generate_with_transformer_model(prompt, max_words)
+                else:
+                    print("Modelo no disponible, usando generador simplificado como respaldo")
+                    return self._generate_with_template_model(prompt, max_words)
             else:
                 return self._generate_with_openai(prompt, max_words, model)
         except Exception as e:
-            raise Exception(f"Error al generar el guión: {str(e)}")
+            print(f"Error al generar el guión: {str(e)}")
+            # Fallback a la generación con plantillas si falla todo lo demás
+            return self._generate_with_template_model(prompt, max_words)
+    
+    def _generate_with_transformer_model(self, prompt, max_words):
+        """Genera un guión usando un modelo de transformers"""
+        try:
+            # Construir un prompt completo con instrucciones
+            full_prompt = f"""
+            Escribe un guión breve para un video de YouTube sobre el siguiente tema: "{prompt}".
+            
+            El guión debe:
+            - Ser informativo y directo
+            - Tener aproximadamente {max_words} palabras
+            - Estar en español
+            - Ser apropiado para ser narrado con voz en off
+            - Evitar introducciones largas y ser conciso
+            - Tener un buen ritmo y ser interesante
+            
+            Guión:
+            """
+            
+            # Tokenizar el prompt
+            inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.device)
+            
+            # Calcular token máximo basado en max_words (estimado)
+            max_tokens = min(1024, max_words * 2)  # Aproximadamente 2 tokens por palabra
+            
+            # Generar texto
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_tokens,
+                    do_sample=True,
+                    temperature=0.7,
+                    top_p=0.9,
+                    repetition_penalty=1.2,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+            
+            # Decodificar la salida
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Extraer solo el guión (después de "Guión:")
+            if "Guión:" in generated_text:
+                script = generated_text.split("Guión:", 1)[1].strip()
+            else:
+                script = generated_text.replace(full_prompt, "").strip()
+            
+            # Limitar el número de palabras
+            words = script.split()
+            if len(words) > max_words:
+                script = " ".join(words[:max_words])
+            
+            return script
+        
+        except Exception as e:
+            print(f"Error en la generación con transformers: {str(e)}")
+            # Fallback al generador simplificado
+            return self._generate_with_template_model(prompt, max_words)
     
     def _generate_with_openai(self, prompt, max_words, model):
         """Genera un guión usando la API de OpenAI"""
@@ -55,7 +160,9 @@ class ScriptGenerator:
                 {"role": "system", "content": f"Eres un experto en escribir guiones para vídeos cortos de YouTube. "
                                              f"Crea un guión atractivo y conciso de máximo {max_words} palabras. "
                                              f"El guión debe ser informativo, directo y mantener la atención del espectador. "
-                                             f"Evita introducciones largas y ve directo al tema principal."},
+                                             f"Evita introducciones largas y ve directo al tema principal."
+                                             f"El guión debe ser en Español."
+                                             f"El texto debe ser plano listo para ser leído por un lector de texto."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=500,
@@ -63,7 +170,7 @@ class ScriptGenerator:
         )
         return completion.choices[0].message.content.strip()
     
-    def _generate_with_local_model(self, prompt, max_words):
+    def _generate_with_template_model(self, prompt, max_words):
         """
         Genera un guión usando una alternativa local simplificada
         Basada en plantillas y algo de aleatoriedad
