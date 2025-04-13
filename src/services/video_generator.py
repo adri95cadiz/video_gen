@@ -241,26 +241,55 @@ class VideoGenerator:
             video_with_music = os.path.join(temp_dir, "video_with_music.mp4")
             video_with_music_escaped = video_with_music.replace('\\', '//')
             
-            # Calcular las opciones de mezcla de audio
-            # Reducir volumen de la música de fondo para que no sobrepase la narración
-            # y asegurarse que dura lo mismo que el video
+            # Extraer solo el audio del video para usarlo como "sidechain" para la música
+            voice_track = os.path.join(temp_dir, "voice_track.wav")
+            voice_track_escaped = voice_track.replace('\\', '//')
+            extract_voice_cmd = f"ffmpeg -y -i \"{temp_output_escaped}\" -vn -acodec pcm_s16le \"{voice_track_escaped}\""
+            print("Extrayendo pista de voz para procesamiento dinámico...")
+            os.system(extract_voice_cmd)
+            
+            # Calcular las opciones de mezcla de audio con equilibrio dinámico
+            # Usar sidechaincompress para reducir volumen de música cuando hay voz
             audio_mix_cmd = (
-                f"ffmpeg -y -i \"{temp_output_escaped}\" -i \"{bg_music_escaped}\" "
-                f"-filter_complex \"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.2[bg];"
-                f"[0:a][bg]amix=inputs=2:duration=first,pan=stereo|c0<c0+c2|c1<c1+c3[a]\" "
+                f"ffmpeg -y -i \"{temp_output_escaped}\" -i \"{bg_music_escaped}\" -filter_complex "
+                f"\"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.25[music];"
+                f"[0:a]asplit=2[voiceorig][voicegate];"
+                f"[voicegate]agate=threshold=0.04:release=50:attack=50[voicedetect];"
+                f"[music][voicedetect]sidechaincompress=threshold=0.03:ratio=2.5:release=400:attack=50:makeup=1.1[musicduck];"
+                f"[voiceorig][musicduck]amix=inputs=2:duration=first:weights=1.2 0.8[a]\" "
                 f"-map 0:v -map \"[a]\" -c:v copy -c:a aac -b:a 192k -shortest "
                 f"\"{video_with_music_escaped}\""
             )
             
-            print("Añadiendo música de fondo...")
+            print("Añadiendo música de fondo con equilibrio dinámico suave...")
+            print(f"Comando: {audio_mix_cmd[:150]}...")  # Mostrar solo los primeros 150 caracteres
             os.system(audio_mix_cmd)
             
             # Comprobar si se generó correctamente
             if os.path.exists(video_with_music) and os.path.getsize(video_with_music) > 0:
                 temp_output = video_with_music
                 temp_output_escaped = video_with_music_escaped
+                print("Música aplicada correctamente con equilibrio dinámico suave")
             else:
-                print("Error al añadir música de fondo, se usará el video sin música")
+                print("Error al aplicar música con equilibrio dinámico, intentando con método simple...")
+                
+                # Método alternativo más simple si el complejo falla
+                simple_mix_cmd = (
+                    f"ffmpeg -y -i \"{temp_output_escaped}\" -i \"{bg_music_escaped}\" -filter_complex "
+                    f"\"[1:a]aloop=loop=-1:size=2e+09,apad,volume=0.15[bg];"
+                    f"[0:a][bg]amix=inputs=2:duration=first:weights=1.2 0.8[a]\" "
+                    f"-map 0:v -map \"[a]\" -c:v copy -c:a aac -b:a 192k -shortest "
+                    f"\"{video_with_music_escaped}\""
+                )
+                
+                print("Usando método simple de mezcla...")
+                os.system(simple_mix_cmd)
+                
+                if os.path.exists(video_with_music) and os.path.getsize(video_with_music) > 0:
+                    temp_output = video_with_music
+                    temp_output_escaped = video_with_music_escaped
+                else:
+                    print("Error al añadir música de fondo, se usará el video sin música")
         
         # Si la concatenación simple funciona, proceder con la versión final
         if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
