@@ -6,26 +6,21 @@ moviepy>=1.0.3
 pydub>=0.25.1
 requests>=2.31.0
 tqdm==4.67.1
+streamlit>=1.29.0
 
 # Estas versiones están seleccionadas para ser compatibles entre sí
 transformers>=4.36.0
-tokenizers==0.11.6
+tokenizers>=0.15.0
 accelerate>=0.27.0
-diffusers==0.8.0
+diffusers>=0.26.0
 huggingface_hub>=0.20.0
 sentencepiece>=0.2.0
 
-# Dependencias para modelos locales con versiones que tienen wheels precompilados
--i https://download.pytorch.org/whl/cu124
-torch>=2.1.0
-torchvision==0.21.0+cu124
-torchaudio==2.6.0+cu124
-
 # Dependencias para modelos locales
-transformers>=4.25.0
-diffusers>=0.14.0
-accelerate>=0.19.0
-safetensors>=0.3.1
+transformers>=4.38.0
+diffusers>=0.28.0
+accelerate>=0.27.0
+safetensors>=0.4.0
 soundfile>=0.12.1
 
 # TTS para español

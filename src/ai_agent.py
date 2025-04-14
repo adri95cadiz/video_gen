@@ -52,7 +52,13 @@ class AIVideoAgent:
             self.script_generator = ScriptGenerator()
 
         if local_image:
-            imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-2-1")
+            # Usar el modelo especificado o el de .env como respaldo
+            if image_model:
+                imagen_model_path = image_model
+            else:
+                imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-3.5-large")
+            
+            print(f"Usando modelo de imagen: {imagen_model_path}")
             self.image_generator = ImageGenerator(use_local_model=True, local_model_path=imagen_model_path, image_dir=image_dir)
         else:
             self.image_generator = ImageGenerator(image_dir=image_dir)
@@ -237,7 +243,7 @@ class AIVideoAgent:
         
         return audio_files
     
-    def generate_video(self, prompt, max_words=None, output_filename=None, background_music_path=None):
+    def generate_video(self, prompt, max_words=None, output_filename=None, background_music_path=None, progress_callback=None):
         """
         Genera un video completo a partir de un prompt
         
@@ -246,78 +252,174 @@ class AIVideoAgent:
             max_words: Número máximo de palabras para el guión (opcional)
             output_filename: Ruta de salida para el video (sobrescribe self.output_path)
             background_music_path: Ruta a un archivo de música para usar como fondo (opcional)
+            progress_callback: Objeto callback para actualizar el progreso en la interfaz gráfica
             
         Returns:
             str: Ruta al video generado
         """
+        start_time = time.time()
+        
+        # Actualizar output_path si se especifica output_filename
+        if output_filename:
+            self.output_path = output_filename if os.path.isabs(output_filename) else os.path.join(self.output_dir, output_filename)
+            # Asegurar que tiene extensión .mp4
+            if not self.output_path.endswith(".mp4"):
+                self.output_path += ".mp4"
+        
+        # Actualizar max_words si se especifica
+        if max_words:
+            self.max_words = max_words
+            
         try:
-            # Configurar salida
-            output_path = output_filename or self.output_path
+            print(f"Generando video a partir del prompt: '{prompt[:50]}...'")
+            print(f"Ruta de salida: {self.output_path}")
             
-            # Ajustar max_words si se proporcionó
-            if max_words:
-                self.max_words = max_words
+            # Limpiar directorios temporales
+            self._clean_temp_directories()
+            
+            # 1. Generar el guión para el video
+            if progress_callback:
+                progress_callback.on_script_start()
                 
-            print(f"Generando video para: '{prompt}'")
+            print("Generando guión del video...")
             
-            # 1. Generar guión
-            print("Generando guión...")
-            script = self.script_generator.generate_script(prompt, self.max_words)
+            script = self.script_generator.generate_script(prompt, max_words=self.max_words)
             print(f"Guión generado ({len(script.split())} palabras)")
             
-            # 2. Dividir en oraciones para las imágenes y voz
-            sentences = self.script_generator.split_script_into_sentences(script)
-            print(f"Script dividido en {len(sentences)} segmentos")
+            # Detectar el idioma para la generación de voz
+            try:
+                from langdetect import detect
+                lang = detect(script)
+                # Mapear códigos de idioma a los que acepta la API de voz
+                lang_map = {
+                    'es': 'es',  # Español
+                    'en': 'en',  # Inglés
+                    'fr': 'fr',  # Francés
+                    'de': 'de',  # Alemán
+                    'it': 'it',  # Italiano
+                    'pt': 'pt',  # Portugués
+                    'nl': 'nl',  # Holandés
+                    'hi': 'hi',  # Hindi
+                    'ja': 'ja',  # Japonés
+                    'zh-cn': 'zh-CN',  # Chino (simplificado)
+                    'zh-tw': 'zh-TW',  # Chino (tradicional)
+                    'ko': 'ko',  # Coreano
+                    'ar': 'ar',  # Árabe
+                    'ru': 'ru',  # Ruso
+                }
+                lang = lang_map.get(lang, 'es')  # Default a español si no se encuentra
+            except:
+                # Si falla la detección, usar español por defecto
+                lang = 'es'
+                
+            print(f"Idioma detectado: {lang}")
             
-            # 3. Generar imágenes para cada oración
-            print("Generando imágenes...")
-            image_paths = []
-            for i, sentence in enumerate(sentences):
-                try:
-                    # Generar imagen
-                    image_path = self.image_generator.generate_image(
-                        prompt=sentence,
-                        output_path=os.path.join(self.temp_dir, f"img_{i}.png")
-                    )
-                    image_paths.append(image_path)
-                    print(f"Imagen {i+1}/{len(sentences)} generada: {os.path.basename(image_path)}")
-                except Exception as e:
-                    print(f"Error generando imagen para '{sentence}': {str(e)}")
-                    # Usar una imagen de placeholder en caso de error
-                    image_path = self._create_text_image(sentence, os.path.join(self.temp_dir, f"img_{i}.png"))
-                    image_paths.append(image_path)
+            if progress_callback:
+                progress_callback.on_script_complete(script)
             
-            # 4. Generar audio para cada oración
-            print("Generando audio...")
-            audio_paths = []
-            for i, sentence in enumerate(sentences):
+            # 2. Dividir el guión en escenas
+            scenes = []
+            current_scene = ""
+            
+            for line in script.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Si la línea actual haría que la escena sea demasiado larga, terminar la escena actual
+                if len(current_scene.split()) + len(line.split()) > 50:  # Máximo ~50 palabras por escena
+                    if current_scene:
+                        scenes.append(current_scene.strip())
+                    current_scene = line
+                else:
+                    # Agregar la línea a la escena actual
+                    if current_scene:
+                        current_scene += " " + line
+                    else:
+                        current_scene = line
+            
+            # Añadir la última escena si no está vacía
+            if current_scene.strip():
+                scenes.append(current_scene.strip())
+            
+            print(f"Script dividido en {len(scenes)} escenas")
+            
+            # 3. Generar imágenes para cada escena
+            if progress_callback:
+                progress_callback.on_images_start()
+                
+            print("Generando imágenes para las escenas...")
+            image_paths = {}
+            
+            for i, scene in enumerate(scenes):
+                print(f"Generando imagen para escena {i+1}/{len(scenes)}")
+                
+                # Nombre del archivo para la imagen
+                image_filename = f"scene_{i}.png"
+                image_path = os.path.join(self.temp_image_dir, image_filename)
+                
                 try:
-                    # Generar audio
-                    audio_path = self.voice_generator.generate_voice(
-                        text=sentence,
-                        output_file=os.path.join(self.temp_dir, f"audio_{i}.mp3")
-                    )
-                    audio_paths.append(audio_path)
-                    print(f"Audio {i+1}/{len(sentences)} generado: {os.path.basename(audio_path)}")
-                except Exception as e:
-                    print(f"Error generando audio para '{sentence}': {str(e)}")
-                    # Continuar sin audio para este segmento
-                    audio_path = self._create_silent_audio(3.0, os.path.join(self.temp_dir, f"audio_{i}.mp3"))
-                    audio_paths.append(audio_path)
+                    # Generar la imagen con el servicio
+                    self.image_generator.generate_image(scene, image_path)
+                    image_paths[i] = image_path
                     
-            # 5. Crear video final
+                    if progress_callback:
+                        progress_callback.on_image_complete(i+1, len(scenes))
+                        
+                except Exception as e:
+                    print(f"Error al generar imagen para escena {i}: {str(e)}")
+                    # Crear una imagen con texto como fallback
+                    fallback_path = self._create_text_image(scene, image_path)
+                    image_paths[i] = fallback_path
+            
+            # 4. Generar audio para cada escena
+            if progress_callback:
+                progress_callback.on_voice_start()
+                
+            print("Generando audio para las escenas...")
+            audio_paths = self._generate_audio_for_scenes(scenes, self.temp_audio_dir, lang=lang)
+            
+            if progress_callback:
+                progress_callback.on_voice_complete()
+            
+            # 5. Combinar todo para crear el video final
+            if progress_callback:
+                progress_callback.on_video_start()
+                
             print("Creando video final...")
-            video_path = self.video_generator.create_video(
-                image_paths=image_paths,
-                audio_paths=audio_paths,
-                sentences=sentences,
-                output_path=output_path,
+            
+            # Convertir diccionarios a listas ordenadas para que coincidan con la lista de escenas
+            image_paths_list = [image_paths[i] for i in range(len(scenes)) if i in image_paths]
+            audio_paths_list = [audio_paths[i] for i in range(len(scenes)) if i in audio_paths]
+            
+            # Asegurar que las listas tengan la misma longitud
+            min_length = min(len(image_paths_list), len(audio_paths_list), len(scenes))
+            if min_length < len(scenes):
+                print(f"Advertencia: Algunas escenas no tienen imagen o audio asociado. Usando solo {min_length} escenas.")
+                scenes = scenes[:min_length]
+                image_paths_list = image_paths_list[:min_length]
+                audio_paths_list = audio_paths_list[:min_length]
+            
+            self.video_generator.create_video(
+                image_paths=image_paths_list,
+                audio_paths=audio_paths_list,
+                sentences=scenes,
+                output_path=self.output_path,
                 background_music_path=background_music_path
             )
             
-            print(f"Video generado: {video_path}")
-            return video_path
+            if progress_callback:
+                progress_callback.on_video_complete(self.output_path)
+            
+            # Calcular tiempo total
+            elapsed_time = time.time() - start_time
+            print(f"Video generado exitosamente en {elapsed_time:.2f} segundos")
+            print(f"Video guardado en: {self.output_path}")
+            
+            return self.output_path
             
         except Exception as e:
-            print(f"Error generando video: {str(e)}")
+            print(f"Error al generar el video: {str(e)}")
+            import traceback
+            traceback.print_exc()
             raise e 

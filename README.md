@@ -20,23 +20,25 @@ VideoGen AI es un agente de inteligencia artificial que genera vídeos cortos pa
 
 1. Clona este repositorio
 2. Instala las dependencias:
+
    ```bash
    pip install -r requirements.txt
+   pip install -i https://download.pytorch.org/whl/cu124 torch torchvision torchaudio
    ```
-
 3. Crea un archivo `.env` basado en el archivo `.env-example` y configura tus API keys:
+
    ```
    OPENAI_API_KEY=tu_api_key_de_openai
    STABILITY_API_KEY=tu_api_key_de_stability_ai
    ELEVENLABS_API_KEY=tu_api_key_de_elevenlabs
    ```
-
 4. Para usar ElevenLabs para voces de alta calidad:
+
    - Regístrate en [ElevenLabs](https://elevenlabs.io/) y obtén una API key
    - Establece la API key en tu archivo `.env`
    - Opcionalmente, personaliza la voz configurando `ELEVENLABS_VOICE_ID`
-
 5. Instala FFmpeg si aún no lo tienes:
+
    - **Windows**: Descarga desde [ffmpeg.org](https://ffmpeg.org/download.html) y añade a PATH
    - **macOS**: `brew install ffmpeg`
    - **Linux**: `sudo apt-get install ffmpeg`
@@ -52,6 +54,7 @@ python main.py --prompt "Tu prompt de texto aquí" --local
 ```
 
 Para una generación rápida de prueba:
+
 ```bash
 # Generar un video corto de ejemplo
 python main.py --prompt "Inteligencia artificial en 30 segundos" --local
@@ -90,4 +93,4 @@ Muestra todas las opciones disponibles:
 - `--output`: Nombre del archivo de salida (por defecto genera un nombre con timestamp)
 - `--max-words`: Número máximo de palabras para el guión (por defecto 200)
 - `--output-dir`: Directorio donde guardar el video (por defecto 'videos')
-- `--local`: Usar modelos locales en lugar de APIs externas (evita costes de API) 
+- `--local`: Usar modelos locales en lugar de APIs externas (evita costes de API)

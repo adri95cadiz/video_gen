@@ -32,6 +32,8 @@ class ImageGenerator:
         self.use_existing_images = image_dir is not None and os.path.isdir(image_dir)
         self.device = device
         self.used_images = set()  # Para seguimiento de imágenes ya utilizadas
+        self.use_simplified = False  # Inicializar el flag para modo simplificado
+        self.pipe = None  # Inicializar el pipe como None
         
         if self.use_existing_images:
             print(f"Usando imágenes existentes del directorio: {self.image_dir}")
@@ -43,7 +45,7 @@ class ImageGenerator:
         
         if use_local_model and not self.use_existing_images:
             # Usar modelo local - no necesita API key
-            self.local_model_path = local_model_path or "stabilityai/stable-diffusion-2-1"
+            self.local_model_path = local_model_path or "stabilityai/stable-diffusion-3.5-large"
             self._setup_local_model()
         elif not self.use_existing_images:
             # Usar Stability AI API
@@ -68,7 +70,7 @@ class ImageGenerator:
     def _setup_local_model(self):
         """Configura el modelo local para generación de imágenes"""
         try:
-            print("Usando generación de imágenes local con Diffusers")
+            print(f"Usando generación de imágenes local con modelo: {self.local_model_path}")
 
             # Verificar si hay GPU disponible
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -80,10 +82,12 @@ class ImageGenerator:
                 print(f"Dispositivo GPU: {torch.cuda.get_device_name(0)}")
 
             # Importar diffusers
-            from diffusers import StableDiffusionPipeline
-
-            # Modelo a utilizar - más ligero para CPU
-            model_id = "stabilityai/stable-diffusion-2-1-base"  # Versión más ligera
+            try:
+                from diffusers import StableDiffusionPipeline, AutoPipelineForText2Image
+            except ImportError as e:
+                print(f"Error importando diffusers: {e}")
+                print("Asegúrate de tener instalado diffusers: pip install diffusers>=0.26.0")
+                raise
 
             # Configurar dtype según el dispositivo
             if self.device == "cuda":
@@ -91,29 +95,76 @@ class ImageGenerator:
             else:
                 dtype = torch.float32  # Precisión completa en CPU
 
-            # Cargar el pipeline
-            self.pipe = StableDiffusionPipeline.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                safety_checker=None  # Desactivar para velocidad (opcional)
-            )
+            # Usar la pipeline adecuada según el modelo
+            print("Cargando modelo Stable Diffusion...")
+            try:
+                self.pipe = StableDiffusionPipeline.from_pretrained(
+                    self.local_model_path,
+                    torch_dtype=dtype,
+                    safety_checker=None  # Desactivar para velocidad (opcional)
+                )
+                print("Modelo SD estándar cargado correctamente")
+            except Exception as e:
+                print(f"Error cargando modelo SD estándar: {e}")
+                raise
+            
+            # Verificar que el pipe se ha cargado correctamente
+            if self.pipe is None:
+                raise Exception("El pipeline no se inicializó correctamente")
+                
+            # Mover el modelo al dispositivo correspondiente
             self.pipe = self.pipe.to(self.device)
+            print(f"Modelo movido al dispositivo: {self.device}")
 
             # Optimizaciones
             if self.device == "cuda":
                 print("Aplicando optimizaciones para GPU...")
                 # En GPU usar half precision para VRAM
-                self.pipe.enable_attention_slicing()
+                if hasattr(self.pipe, 'enable_attention_slicing'):
+                    self.pipe.enable_attention_slicing()
+                    print("Attention slicing habilitado")
+                if hasattr(self.pipe, 'enable_model_cpu_offload'):
+                    self.pipe.enable_model_cpu_offload()
+                    print("Model CPU offload habilitado")
             else:
                 print("Aplicando optimizaciones para CPU...")
-                self.pipe.enable_attention_slicing()
+                if hasattr(self.pipe, 'enable_attention_slicing'):
+                    self.pipe.enable_attention_slicing()
+                    print("Attention slicing habilitado")
                 # Usar sequential CPU offload para menos memoria
-                self.pipe.enable_sequential_cpu_offload()
+                if hasattr(self.pipe, 'enable_sequential_cpu_offload'):
+                    self.pipe.enable_sequential_cpu_offload()
+                    print("Sequential CPU offload habilitado")
+
+            print("Configuración del modelo completada con éxito")
+            return True
 
         except Exception as e:
             print(f"Error al configurar modelo de difusión: {str(e)}")
-            print("Volviendo al modo simplificado")
+            print("Volviendo al modo simplificado con modelo de respaldo")
             self.use_simplified = True
+            
+            # Intentar cargar un modelo más sencillo y ligero como fallback
+            try:
+                print("Intentando cargar modelo de respaldo...")
+                from diffusers import StableDiffusionPipeline
+                
+                # Usar un modelo más ligero y estable como respaldo
+                fallback_model = "CompVis/stable-diffusion-v1-4"
+                
+                self.pipe = StableDiffusionPipeline.from_pretrained(
+                    fallback_model,
+                    torch_dtype=torch.float32,  # Usar float32 para mayor compatibilidad
+                    safety_checker=None
+                )
+                self.pipe = self.pipe.to("cpu")  # Forzar CPU para evitar problemas de memoria
+                print(f"Modelo de respaldo {fallback_model} cargado correctamente en CPU")
+                return True
+            except Exception as fallback_e:
+                print(f"Error al cargar modelo de respaldo: {fallback_e}")
+                print("No se pudo configurar ningún modelo de difusión")
+                self.pipe = None
+                return False
 
     def generate_image(self, prompt, output_path=None, width=1024, height=1024, steps=30):
         """
@@ -190,6 +241,10 @@ class ImageGenerator:
 
     def _generate_with_local_model(self, prompt, output_path, width, height, steps):
         """Genera una imagen usando el modelo local de Stable Diffusion"""
+        # Verificar si el pipe se inicializó correctamente
+        if not hasattr(self, 'pipe') or self.pipe is None:
+            raise Exception("El pipeline de Stable Diffusion no está inicializado. Verifica la instalación de las dependencias.")
+            
         # Crear un archivo temporal si no se especifica una ruta
         if not output_path:
             temp_file = tempfile.NamedTemporaryFile(
@@ -201,24 +256,71 @@ class ImageGenerator:
         width = (width // 8) * 8
         height = (height // 8) * 8
 
-        # Generar imagen
-        negative_prompt = "ugly, blurry, poor quality, distorted, deformed"
+        # Prompt para generar mejor calidad
+        positive_prompt = f"high quality, detailed, professional photography, {prompt}"
+        negative_prompt = "ugly, blurry, low quality, distorted, deformed, watermark, text, signature"
 
-        # Generar la imagen con el pipeline
-        with torch.no_grad():
-            image = self.pipe(
-                prompt=f"{prompt}",
-                negative_prompt=negative_prompt,
-                num_inference_steps=steps,
-                guidance_scale=7.5,
-                width=width,
-                height=height
-            ).images[0]
+        try:
+            # Para modelos SD anteriores o el modelo de fallback
+            print(f"Generando imagen con modelo estándar ({steps} pasos)...")
+            
+            with torch.no_grad():
+                # Usar parámetros consistentes con el modelo
+                try:
+                    # Intentar con parámetros completos
+                    image = self.pipe(
+                        prompt=positive_prompt,
+                        negative_prompt=negative_prompt,
+                        num_inference_steps=steps,
+                        guidance_scale=7.5,
+                        width=width,
+                        height=height
+                    ).images[0]
+                except TypeError as te:
+                    # Si hay error con los parámetros, intentar sin width/height (algunos modelos no los aceptan)
+                    print(f"Ajustando parámetros: {te}")
+                    image = self.pipe(
+                        prompt=positive_prompt,
+                        negative_prompt=negative_prompt,
+                        num_inference_steps=steps,
+                        guidance_scale=7.5
+                    ).images[0]
 
-        # Guardar la imagen
-        image.save(output_path)
-
-        return output_path
+            # Guardar la imagen
+            image.save(output_path)
+            print(f"Imagen guardada en: {output_path}")
+            
+            return output_path
+            
+        except Exception as e:
+            print(f"Error al generar imagen con modelo local: {str(e)}")
+            # Si falla, intentar un modo simplificado con menos pasos y dimensiones más pequeñas
+            try:
+                print("Intentando con configuración simplificada...")
+                # Intentar con dimensiones y pasos reducidos
+                width, height = 512, 512
+                steps = 20
+                
+                # Crear una imagen básica con PIL como último recurso
+                from PIL import Image, ImageDraw, ImageFont
+                import textwrap
+                
+                img = Image.new('RGB', (width, height), color = (0, 0, 0))
+                d = ImageDraw.Draw(img)
+                
+                # Añadir el prompt como texto en la imagen
+                font = ImageFont.load_default()
+                wrapped_text = textwrap.fill(prompt, width=40)
+                d.text((10, 10), wrapped_text, fill=(255, 255, 255), font=font)
+                
+                # Guardar la imagen
+                img.save(output_path)
+                print(f"Generada imagen de texto como fallback en: {output_path}")
+                return output_path
+                
+            except Exception as fallback_error:
+                print(f"Error en modo simplificado: {str(fallback_error)}")
+                raise Exception(f"No se pudo generar la imagen: {str(e)}")
 
     def _select_image_from_directory(self, output_path=None):
         """
