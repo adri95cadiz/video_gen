@@ -56,7 +56,7 @@ class AIVideoAgent:
             if image_model:
                 imagen_model_path = image_model
             else:
-                imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-3.5-large")
+                imagen_model_path = os.environ.get("LOCAL_IMAGE_MODEL_PATH", "stabilityai/stable-diffusion-xl-base-1.0")
             
             print(f"Usando modelo de imagen: {imagen_model_path}")
             self.image_generator = ImageGenerator(use_local_model=True, local_model_path=imagen_model_path, image_dir=image_dir)

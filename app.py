@@ -325,7 +325,7 @@ with st.expander("ℹ️ Acerca de esta herramienta"):
     Este generador utiliza Inteligencia Artificial para crear videos en tres pasos:
     
     1. **Generación de guión**: Crea un guión narrativo basado en tu prompt
-    2. **Creación de imágenes**: Genera imágenes que ilustran cada escena del guión (usando Stable Diffusion 3.5)
+    2. **Creación de imágenes**: Genera imágenes que ilustran cada escena del guión (usando Stable Diffusion)
     3. **Síntesis de voz**: Convierte el texto a voz para narrar el video
     4. **Edición final**: Combina todo en un video con transiciones y música
     
@@ -337,7 +337,7 @@ with st.expander("ℹ️ Acerca de esta herramienta"):
     
     ### Modelos utilizados
     
-    - **Imágenes**: Stable Diffusion 3.5 Large (última versión)
+    - **Imágenes**: Stable Diffusion XL
     - **Texto**: OpenAI GPT-4 (API) o Falcon-7B-Instruct (local)
     - **Voz**: ElevenLabs (API) o modelos locales de TTS
     

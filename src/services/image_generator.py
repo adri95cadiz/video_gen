@@ -45,7 +45,7 @@ class ImageGenerator:
         
         if use_local_model and not self.use_existing_images:
             # Usar modelo local - no necesita API key
-            self.local_model_path = local_model_path or "stabilityai/stable-diffusion-3.5-large"
+            self.local_model_path = local_model_path or "stabilityai/stable-diffusion-xl-base-1.0"
             self._setup_local_model()
         elif not self.use_existing_images:
             # Usar Stability AI API
