@@ -11,7 +11,7 @@ from src.services.video_generator import VideoGenerator
 class AIVideoAgent:
     def __init__(self, image_model=None,
                  local_script=False, local_image=False, local_voice=False, music_reference=None, output_dir="videos",
-                 transcribe_audio=False, image_dir=None, script_model=None, style=None):
+                 transcribe_audio=False, image_dir=None, script_model=None, style=None, custom_media=None):
         """
         Inicializa el agente de IA para generación de videos.
 
@@ -27,6 +27,7 @@ class AIVideoAgent:
             image_dir: Directorio con imágenes existentes para usar en lugar de generar nuevas
             script_model: Modelo específico de OpenAI a utilizar para la generación de guiones
             style: Diccionario con información del estilo seleccionado por el usuario
+            custom_media: Lista de rutas a archivos multimedia proporcionados por el usuario (opcional)
         """
         # Cargar variables de entorno desde el archivo .env
         load_dotenv()
@@ -47,6 +48,8 @@ class AIVideoAgent:
         # Guardar el modelo de script seleccionado y el estilo
         self.script_model = script_model
         self.style = style
+        self.custom_media = custom_media or [] # Guardar la lista de medios personalizados
+        self.use_custom_media = bool(self.custom_media)
 
         # Inicializar servicios
         if local_script:
@@ -59,7 +62,11 @@ class AIVideoAgent:
             # Usar APIs externas (OpenAI, Stability AI)
             self.script_generator = ScriptGenerator()
 
-        if local_image:
+        # Si se usan medios personalizados, no necesitamos el generador de imágenes
+        if self.use_custom_media:
+            self.image_generator = None
+            print("Usando medios personalizados. El generador de imágenes no se inicializará.")
+        elif local_image:
             # Usar el modelo especificado o el de .env como respaldo
             if image_model:
                 imagen_model_path = image_model
@@ -108,8 +115,14 @@ class AIVideoAgent:
 
     def generate_video(self, video_topic, max_words=None, num_scenes=5, progress_callback=None):
         """Genera un video basado en un tema proporcionado"""
+        # Si se usan medios personalizados, ajustar el número de escenas
+        if self.use_custom_media:
+            num_scenes = len(self.custom_media)
+            print(f"Usando {num_scenes} escenas basadas en los archivos multimedia proporcionados.")
+        else:
+            num_scenes = num_scenes or 5
+            
         self.max_words = max_words or self.max_words
-        self.num_scenes = num_scenes or self.num_scenes
         self._clean_temp_directories()
 
         # Paso 1: Generar guión basado en el tema
@@ -139,33 +152,58 @@ class AIVideoAgent:
 
         # Obtener las escenas para el guión
         scenes = self.script_generator.split_into_scenes(script, num_scenes)
+        
+        # Adaptar el número de escenas al número de medios personalizados si es necesario
+        if self.use_custom_media and len(scenes) != num_scenes:
+            print(f"Aviso: El número de escenas generadas ({len(scenes)}) no coincide con el número de archivos multimedia ({num_scenes}). Se ajustará.")
+            # Si hay más escenas que medios, truncar escenas
+            if len(scenes) > num_scenes:
+                scenes = scenes[:num_scenes]
+            # Si hay menos escenas que medios, duplicar la última escena (o manejar de otra forma)
+            elif len(scenes) < num_scenes:
+                last_scene = scenes[-1] if scenes else "Escena adicional."
+                scenes.extend([last_scene] * (num_scenes - len(scenes)))
+        elif len(scenes) != num_scenes:
+            print(f"Aviso: El número de escenas generadas ({len(scenes)}) difiere del solicitado ({num_scenes}).")
+            num_scenes = len(scenes)
 
         # Paso 2: Generar imágenes para cada escena
-        print(f"🎨 Generando {len(scenes)} imágenes...")
-        image_paths = []
+        media_paths = []
+        if self.use_custom_media:
+            print("🖼️ Usando archivos multimedia proporcionados por el usuario...")
+            media_paths = self.custom_media
+            if progress_callback:
+                progress_callback.update("Usando medios personalizados", 40) # Actualizar progreso
+                for i in range(num_scenes):
+                    progress_callback.on_image_complete(i + 1, num_scenes)
+        else:
+            print(f"🎨 Generando {num_scenes} imágenes...")
+            if progress_callback:
+                progress_callback.on_images_start()
+            for i, scene_text in enumerate(scenes):
+                # Usar la plantilla de prompt de imagen del estilo si está disponible
+                image_prompt = scene_text
+                if self.style and 'image_prompt_template' in self.style:
+                    image_prompt = self.style['image_prompt_template'].replace(
+                        "{tema}", video_topic) + ". El texto de la escena es: " + scene_text
 
-        if progress_callback:
-            progress_callback.on_images_start()
-
-        for i, scene_text in enumerate(scenes):
-            # Usar la plantilla de prompt de imagen del estilo si está disponible
-            image_prompt = scene_text
-            if self.style and 'image_prompt_template' in self.style:
-                image_prompt = self.style['image_prompt_template'].replace(
-                    "{tema}", video_topic) + ". El texto de la escena es: " + scene_text
-
-            image_path = self.image_generator.generate_image(
-                prompt=image_prompt,
-                output_path=os.path.join(
-                    self.temp_image_dir, f"scene_{i+1}.png")
-            )
-            image_paths.append(image_path)
-
-        if progress_callback:
-            progress_callback.on_image_complete(i+1, len(scenes))
+                if self.image_generator:
+                    image_path = self.image_generator.generate_image(
+                        prompt=image_prompt,
+                        output_path=os.path.join(
+                            self.temp_image_dir, f"scene_{i+1}.png")
+                    )
+                    media_paths.append(image_path)
+                else:
+                    print("Error: image_generator no está inicializado pero se intentó generar imagen.")
+                    # Opcional: generar imagen de fallback o lanzar error
+                    media_paths.append(None) # Añadir None o manejar error
+                    
+                if progress_callback:
+                    progress_callback.on_image_complete(i + 1, num_scenes)
 
         # Paso 3: Generar voces para cada escena
-        print(f"🎨 Generando {len(scenes)} voces...")
+        print(f"🔊 Generando {num_scenes} voces...")
         audio_paths = []
 
         if progress_callback:
@@ -190,7 +228,7 @@ class AIVideoAgent:
             progress_callback.on_video_start()
 
         video_path = self.video_generator.create_video(
-            image_paths=image_paths,
+            media_paths=media_paths,
             audio_paths=audio_paths,
             output_path=self.output_path,
             sentences=scenes,
@@ -207,8 +245,8 @@ class AIVideoAgent:
             "topic": video_topic,
             "script": script,
             "scenes": scenes,
-            "image_paths": image_paths,
-            "audio_path": audio_path,
+            "media_paths": media_paths,
+            "audio_path": audio_paths,
             "video_path": video_path,
             "style": self.style['name'] if self.style else None
         }

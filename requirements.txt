@@ -7,6 +7,7 @@ pydub>=0.25.1
 requests>=2.31.0
 tqdm==4.67.1
 streamlit>=1.29.0
+streamlit-sortables>=0.3.1
 
 # Estas versiones están seleccionadas para ser compatibles entre sí
 transformers>=4.36.0

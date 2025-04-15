@@ -4,6 +4,8 @@ from pydub import AudioSegment
 import time
 import shutil
 import random
+import subprocess # Importar subprocess para mejor control
+import mimetypes # Para detectar tipo de archivo
 
 
 class VideoGenerator:
@@ -53,12 +55,28 @@ class VideoGenerator:
         audio = AudioSegment.from_file(audio_path)
         return len(audio) / 1000.0  # Convertir de ms a segundos
 
-    def create_video(self, image_paths, audio_paths, sentences, output_path, bg_color="black", background_music_path=None):
+    def get_media_duration(self, media_path):
+        """Obtiene la duración de un archivo de imagen (predeterminado) o video."""
+        mime_type, _ = mimetypes.guess_type(media_path)
+        if mime_type and mime_type.startswith('video'):
+            try:
+                # Usar ffprobe para obtener la duración del video
+                cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "{media_path}'
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
+                return float(result.stdout.strip())
+            except Exception as e:
+                print(f"Error al obtener duración del video {media_path}: {e}")
+                return 5.0 # Duración por defecto si falla ffprobe
+        else:
+            # Para imágenes, devolver la duración del audio correspondiente (o un valor por defecto)
+            return None # Indicador para usar la duración del audio
+
+    def create_video(self, media_paths, audio_paths, sentences, output_path, bg_color="black", background_music_path=None):
         """
-        Crea un video combinando imágenes y audio (versión simplificada)
+        Crea un video combinando imágenes y/o videos con audio.
 
         Args:
-            image_paths: Lista de rutas a las imágenes
+            media_paths: Lista de rutas a las imágenes o videos
             audio_paths: Lista de rutas a los archivos de audio
             sentences: Lista de oraciones para los subtítulos
             output_path: Ruta de salida para el video
@@ -70,9 +88,9 @@ class VideoGenerator:
         """
         print("Usando generador de video simplificado para modelos locales")
 
-        if len(image_paths) != len(audio_paths):
+        if len(media_paths) != len(audio_paths):
             raise ValueError(
-                "Las listas de imágenes y audios deben tener la misma longitud")
+                "Las listas de medios y audios deben tener la misma longitud")
 
         # Verificar si se proporcionó música de fondo
         has_background_music = background_music_path and os.path.exists(
@@ -82,15 +100,25 @@ class VideoGenerator:
         temp_videos = []
         total_duration = 0
 
-        for i, (img_path, audio_path) in enumerate(zip(image_paths, audio_paths)):
+        for i, (media_path, audio_path) in enumerate(zip(media_paths, audio_paths)):
             try:
                 # Crear un archivo de video temporal
                 temp_video = os.path.join(
                     tempfile.gettempdir(), f"temp_video_{i}.mp4")
 
-                # Obtener la duración del audio
+                # Determinar la duración del clip
+                media_duration = self.get_media_duration(media_path)
                 audio_duration = self.get_audio_duration(audio_path)
-                total_duration += audio_duration
+                
+                # Si es una imagen, la duración la marca el audio
+                # Si es un video, la duración es la del propio video (ignorar audio asociado?)
+                clip_duration = media_duration if media_duration is not None else audio_duration
+                
+                # Si es video, podríamos decidir usar su audio original o el generado
+                # Por simplicidad, usaremos el audio generado para ambos casos
+                use_audio_path = audio_path
+                
+                total_duration += clip_duration
 
                 # Escapar texto para ffmpeg (reemplazar comillas, etc.)
                 texto_subtitulo = sentences[i].replace(
@@ -124,8 +152,12 @@ class VideoGenerator:
                 if fragmento_actual:
                     fragmentos.append(" ".join(fragmento_actual))
 
+                # Evitar división por cero si no hay fragmentos
+                if not fragmentos:
+                    fragmentos = [texto_subtitulo] # Usar el texto completo si no se pudo dividir
+
                 # Variables para controlar el tiempo
-                duracion_por_fragmento = audio_duration / len(fragmentos)
+                duracion_por_fragmento = clip_duration / len(fragmentos)
 
                 # Crear múltiples comandos de drawtext para cada fragmento con diferentes posiciones y tiempos
                 drawtext_commands = []
@@ -149,8 +181,8 @@ class VideoGenerator:
                     drawtext_commands.append(drawtext_cmd)
 
                 # Corregir la ruta para Windows reemplazando barras invertidas y escapando adecuadamente
-                img_path_escaped = img_path.replace('\\', '/')
-                audio_path_escaped = audio_path.replace('\\', '/')
+                media_path_escaped = media_path.replace('\\', '/')
+                use_audio_path_escaped = use_audio_path.replace('\\', '/')
                 temp_video_escaped = temp_video.replace('\\', '/')
 
                 # Concatenar los comandos drawtext con comas para aplicar filtros en secuencia
@@ -159,42 +191,84 @@ class VideoGenerator:
                 # Seleccionar una animación aleatoria para la imagen
                 animations = [
                     # Zoom lento hacia adentro
-                    f"zoompan=z='min(zoom+0.0015,1.3)':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    f"zoompan=z='min(zoom+0.0015,1.3)':d={int(clip_duration*25)}:s={self.width}x{self.height}",
                     # Zoom lento hacia afuera
-                    f"zoompan=z='if(lte(on,1),1.3,max(1.3-(on)*0.0015,1))':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    f"zoompan=z='if(lte(on,1),1.3,max(1.3-(on)*0.0015,1))':d={int(clip_duration*25)}:s={self.width}x{self.height}",
                     # Movimiento lento hacia arriba
-                    f"zoompan=z=1.1:y='ih-ih*0.1-on*0.0007':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    f"zoompan=z=1.1:y='ih-ih*0.1-on*0.0007':d={int(clip_duration*25)}:s={self.width}x{self.height}",
                     # Movimiento lento hacia abajo
-                    f"zoompan=z=1.1:y='on*0.0007':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    f"zoompan=z=1.1:y='on*0.0007':d={int(clip_duration*25)}:s={self.width}x{self.height}",
                     # Movimiento diagonal
-                    f"zoompan=z=1.1:x='iw*0.05+on*0.0005':y='ih*0.05+on*0.0004':d={int(audio_duration*25)}:s={self.width}x{self.height}",
+                    f"zoompan=z=1.1:x='iw*0.05+on*0.0005':y='ih*0.05+on*0.0004':d={int(clip_duration*25)}:s={self.width}x{self.height}",
                 ]
                 animation = random.choice(animations)
 
                 # Añadir fade in al inicio y fade out al final para facilitar transiciones
                 if i == 0:
                     # Primer clip: solo fade in
-                    fade_filter = "fade=in:0:30"
-                elif i == len(image_paths) - 1:
+                    fade_frames = min(30, int(clip_duration*25/2)) # Fade de max 30 frames o mitad de clip
+                    fade_filter = f"fade=in:0:{fade_frames}"
+                elif i == len(media_paths) - 1:
                     # Último clip: solo fade out
-                    fade_out_start = max(0, int(audio_duration*25) - 30)
-                    fade_filter = f"fade=out:{fade_out_start}:30"
+                    fade_frames = min(30, int(clip_duration*25/2))
+                    fade_out_start = max(0, int(clip_duration*25) - fade_frames)
+                    fade_filter = f"fade=out:{fade_out_start}:{fade_frames}"
                 else:
                     # Clips intermedios: fade in y fade out
-                    fade_out_start = max(0, int(audio_duration*25) - 30)
-                    fade_filter = f"fade=in:0:30,fade=out:{fade_out_start}:30"
+                    fade_frames = min(30, int(clip_duration*25/2))
+                    fade_out_start = max(0, int(clip_duration*25) - fade_frames)
+                    fade_filter = f"fade=in:0:{fade_frames},fade=out:{fade_out_start}:{fade_frames}"
 
-                # Crear comando ffmpeg para combinar imagen, audio, animación y subtítulos
-                cmd = (
-                    f"ffmpeg -y -loop 1 -i \"{img_path_escaped}\" -i \"{audio_path_escaped}\" -c:v libx264 "
-                    f"-t {audio_duration} -pix_fmt yuv420p -vf \"{animation},scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
-                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,{fade_filter},"
-                    f"{drawtext_filters}\" "
-                    f"\"{temp_video_escaped}\""
-                )
+                # Determinar si el input es video o imagen
+                mime_type, _ = mimetypes.guess_type(media_path)
+                is_video_input = mime_type and mime_type.startswith('video')
+
+                # Construir comando FFmpeg
+                cmd_parts = ["ffmpeg", "-y"]
+
+                if is_video_input:
+                    # Input es video
+                    cmd_parts.extend(["-i", f'\"{media_path_escaped}\"'])
+                    # Usar audio generado
+                    cmd_parts.extend(["-i", f'\"{use_audio_path_escaped}\"'])
+                    # Mapear video y audio nuevo, ignorar audio original del video
+                    cmd_parts.extend(["-map", "0:v:0", "-map", "1:a:0"])
+                    cmd_parts.extend(["-c:v", "libx264"])
+                    # Ajustar la duración del video de entrada si es necesario (usar -t)
+                    cmd_parts.extend(["-t", str(clip_duration)]) 
+                else:
+                    # Input es imagen
+                    cmd_parts.extend(["-loop", "1", "-i", f'\"{media_path_escaped}\"'])
+                    cmd_parts.extend(["-i", f'\"{use_audio_path_escaped}\"'])
+                    cmd_parts.extend(["-map", "0:v:0", "-map", "1:a:0"])
+                    cmd_parts.extend(["-c:v", "libx264"])
+                    cmd_parts.extend(["-t", str(clip_duration)])
+
+                # Filtros comunes (escalado, pad, animación si es imagen, fade, subtítulos)
+                filter_complex = []
+                # Aplicar animación solo a imágenes
+                if not is_video_input:
+                    filter_complex.append(animation)
+                    
+                filter_complex.extend([
+                    f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease",
+                    f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2",
+                    fade_filter,
+                    drawtext_filters # Añadir subtítulos al final
+                ])
+                
+                # Unir filtros con comas
+                vf_filter = ",".join(filter(None, filter_complex))
+                cmd_parts.extend(["-vf", f'\"{vf_filter}\"'])
+                
+                # Parámetros de codificación y salida
+                cmd_parts.extend(["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", f'\"{temp_video_escaped}\"'])
+
+                # Unir comando
+                cmd = " ".join(cmd_parts)
 
                 # Ejecutar comando
-                print(f"Procesando clip {i+1}/{len(image_paths)}...")
+                print(f"Procesando clip {i+1}/{len(media_paths)}...")
                 # Para depuración (mostrar solo el inicio)
                 print(f"Comando ffmpeg: {cmd[:150]}...")
                 os.system(cmd)
@@ -230,12 +304,15 @@ class VideoGenerator:
 
         # Corregir ruta para Windows
         concat_file_escaped = concat_file.replace('\\', '//')
-        output_path_escaped = output_path.replace('\\', '//')
 
         # Primero generamos una versión sin transiciones para tener una base funcional
         temp_output = os.path.join(temp_dir, "temp_output.mp4")
         temp_output_escaped = temp_output.replace('\\', '//')
 
+        # Validar que concat_file existe y no está vacío
+        if not os.path.exists(concat_file) or os.path.getsize(concat_file) == 0:
+            raise Exception(f"El archivo de concatenación {concat_file} está vacío o no existe.")
+            
         # Comando para concatenación simple (sin transiciones sofisticadas pero seguro)
         concat_simple_cmd = f"ffmpeg -y -f concat -safe 0 -i \"{concat_file_escaped}\" -c copy \"{temp_output_escaped}\""
         print("Generando versión base del video...")
@@ -302,14 +379,11 @@ class VideoGenerator:
                         "Error al añadir música de fondo, se usará el video sin música")
 
         # Si la concatenación simple funciona, proceder con la versión final
-        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
-            # Crear una versión con transiciones suaves usando crossfade
-            final_cmd = f"ffmpeg -y -i \"{temp_output_escaped}\" -vf \"tblend=all_mode=average,framestep=1\" -c:a copy \"{output_path_escaped}\""
-            print("Aplicando transiciones suaves...")
-            os.system(final_cmd)
-        else:
-            # Si la versión con transiciones falla, usar la versión simple
+        if os.path.exists(temp_output) and os.path.getsize(temp_output) > 0: 
             shutil.copy(temp_output, output_path)
+            print("Video final copiado (sin transiciones complejas)")
+        else:
+            raise Exception("Falló la concatenación simple del video.")
 
         # Limpiar archivos temporales
         try:

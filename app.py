@@ -9,6 +9,9 @@ from src.ai_agent import AIVideoAgent
 import tempfile
 from pathlib import Path
 import time
+import shutil
+import random
+from streamlit_sortables import sort_items
 
 # Configuración para solucionar el error "no running event loop"
 import asyncio
@@ -191,12 +194,89 @@ with st.sidebar.expander("Opciones avanzadas", expanded=False):
         help="Directorio con imágenes existentes para usar en lugar de generar nuevas"
     )
 
+    # Cargar archivos multimedia personalizados
+    st.markdown("---**Medios personalizados**---")
+    use_custom_media = st.checkbox("Usar mis propios archivos", value=False,
+                                   help="Selecciona esta opción para usar tus propias imágenes o videos en lugar de los generados por IA.")
+    
+    uploaded_files = None
+    if use_custom_media:
+        uploaded_files_current = st.file_uploader(
+            "Cargar imágenes o videos",
+            type=["png", "jpg", "jpeg", "bmp", "gif", "webp", "mp4", "mov", "avi"],
+            accept_multiple_files=True,
+            help="Sube los archivos que quieres usar para las escenas. El orden de subida determinará el orden en el video."
+        )
+        
+        if 'uploaded_media_state' not in st.session_state:
+            st.session_state.uploaded_media_state = []
+        
+        if uploaded_files_current != st.session_state.get('last_uploaded_files', []):
+            st.session_state.uploaded_media_state = uploaded_files_current
+            st.session_state.last_uploaded_files = uploaded_files_current
+            st.session_state.sort_key_suffix = 0 # Reiniciar key si cambian los archivos
+        
+        # Inicializar el sufijo de la key si no existe
+        if 'sort_key_suffix' not in st.session_state:
+            st.session_state.sort_key_suffix = 0
+        
+        if st.session_state.uploaded_media_state:
+            st.write("**Ordenar archivos para escenas (arrastrar y soltar):**")
+            # Extraer solo los nombres para mostrar en la lista sortable
+            items_to_sort = [f.name for f in st.session_state.uploaded_media_state]
+            
+            # Usar una key dinámica que cambia al mezclar
+            current_key = f"media_sorter_{st.session_state.sort_key_suffix}"
+            sorted_item_names = sort_items(items_to_sort, key=current_key, direction="vertical")            
+            
+            # Reconstruir la lista de archivos subidos en el nuevo orden
+            # Crear un mapeo de nombre a objeto archivo para reconstrucción rápida
+            file_map = {f.name: f for f in st.session_state.uploaded_media_state}
+            
+            # Asegurarse de que todos los nombres sorteados existen en el mapeo
+            reordered_files = []
+            for name in sorted_item_names:
+                if name in file_map:
+                    reordered_files.append(file_map[name])
+                else:
+                    # Manejar caso de inconsistencia (poco probable pero seguro)
+                    st.warning(f"El archivo '{name}' no se encontró después de reordenar. Puede que haya sido eliminado.")
+                    # Intentar encontrar por si acaso cambió el estado
+                    current_file_map = {f.name: f for f in uploaded_files_current}
+                    if name in current_file_map:
+                        reordered_files.append(current_file_map[name])
+            
+            # Actualizar el estado de la sesión con la lista reordenada
+            st.session_state.uploaded_media_state = reordered_files
+            
+            # Asignar la lista reordenada para pasarla a la función
+            uploaded_files = st.session_state.uploaded_media_state
+        else:
+            uploaded_files = []
+
 # Función para generar el video
-def generate_video(progress_placeholder):
+def generate_video(progress_placeholder, custom_media_files=None):
     temp_files = []
+    custom_media_paths = []
     
     try:
-        # Validar que el prompt no esté vacío
+        # Guardar archivos subidos temporalmente
+        if custom_media_files:
+            if (len(custom_media_files) != num_scenes):
+                progress_placeholder.error("El número de escenas y medios personalizados debe coincidir")
+                return
+            temp_media_dir = tempfile.mkdtemp(prefix="custom_media_")
+            for uploaded_file in custom_media_files:
+                temp_path = os.path.join(temp_media_dir, uploaded_file.name)
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                custom_media_paths.append(temp_path)
+            
+            temp_files.append(temp_media_dir) # Para limpiar el directorio después
+            print(f"Archivos personalizados guardados en: {temp_media_dir}")
+            print(f"Rutas de archivos personalizados: {custom_media_paths}")
+            
+        # Validar que el prompt no esté vacío (a menos que se usen medios personalizados)
         if not prompt or len(prompt.strip()) < 3:
             progress_placeholder.error("Por favor ingresa un prompt válido con al menos 3 caracteres")
             return
@@ -259,7 +339,7 @@ def generate_video(progress_placeholder):
             local_image=local_image,
             local_voice=local_voice,
             output_dir=output_dir,
-            image_dir=valid_image_dir,
+            custom_media=custom_media_paths,
             image_model=image_model if local_image else None,
             script_model=openai_model if not local_script else None,
             music_reference=background_music_path,
@@ -311,7 +391,11 @@ def generate_video(progress_placeholder):
         progress_callback = ProgressCallback()
         
         # Generar el video
-        add_log(f"Generando video con prompt: '{prompt[:50]}...' y estilo: {selected_style_name}")
+        if custom_media_paths:
+            add_log(f"Generando video usando {len(custom_media_paths)} archivos multimedia personalizados...")
+        else:
+            add_log(f"Generando video con prompt: '{prompt[:50]}...' y estilo: {selected_style_name}")
+        
         video_path = agent.generate_video(
             video_topic=prompt,
             max_words=max_words,
@@ -358,15 +442,21 @@ def generate_video(progress_placeholder):
     finally:
         # Limpiar archivos temporales
         for file_path in temp_files:
-            if os.path.exists(file_path):
-                os.unlink(file_path)
+            if os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            elif os.path.exists(file_path):
+                try:
+                    os.unlink(file_path)
+                except PermissionError:
+                    print(f"No se pudo eliminar el archivo temporal {file_path} (puede estar en uso)")
 
 # Botón para generar el video
 if st.sidebar.button("Generar Video", type="primary", use_container_width=True):
     progress_placeholder = st.empty()
+    custom_media_files = uploaded_files if use_custom_media else None
     try:
         # Asegurar que no haya conflictos con eventos asyncio
-        generate_video(progress_placeholder)
+        generate_video(progress_placeholder, custom_media_files)
     except Exception as e:
         st.error(f"Error durante la ejecución: {str(e)}")
         st.code(str(e), language="bash")
