@@ -1,6 +1,5 @@
 import os
 import logging
-import tempfile
 from pathlib import Path
 import torch
 import pyttsx3

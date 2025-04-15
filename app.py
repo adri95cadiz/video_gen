@@ -4,9 +4,9 @@
 import os
 import sys
 import streamlit as st
+import json
 from src.ai_agent import AIVideoAgent
 import tempfile
-import shutil
 from pathlib import Path
 import time
 
@@ -54,6 +54,15 @@ st.markdown("""
 st.title("🎬 Generador de Videos con IA")
 st.write("Crea videos cortos para YouTube o redes sociales a partir de un prompt de texto.")
 
+# Cargar estilos desde el archivo JSON
+def load_styles():
+    try:
+        with open('src/styles.json', 'r', encoding='utf-8') as f:
+            return json.load(f)['styles']
+    except Exception as e:
+        print(f"Error al cargar estilos: {e}")
+        return []
+
 # Función para crear directorios temporales
 def create_temp_dir():
     """Crea un directorio temporal y devuelve su ruta"""
@@ -63,6 +72,11 @@ def create_temp_dir():
 # Sidebar con opciones
 st.sidebar.title("⚙️ Configuración")
 
+# Cargar estilos
+styles = load_styles()
+style_options = {style["name"]: style["id"] for style in styles}
+style_descriptions = {style["id"]: style["description"] for style in styles}
+
 # Prompt de texto
 prompt = st.sidebar.text_area(
     "Prompt para el video", 
@@ -70,6 +84,18 @@ prompt = st.sidebar.text_area(
     height=100,
     help="Describe el contenido que deseas para el video"
 )
+
+# Selector de estilo de video
+selected_style_name = st.sidebar.selectbox(
+    "Estilo de video",
+    options=list(style_options.keys()),
+    index=0,
+    help="Selecciona el estilo que deseas para tu video"
+)
+selected_style_id = style_options[selected_style_name]
+
+# Mostrar descripción del estilo seleccionado
+st.sidebar.info(style_descriptions[selected_style_id])
 
 # Opciones avanzadas
 with st.sidebar.expander("Opciones avanzadas", expanded=False):
@@ -87,9 +113,40 @@ with st.sidebar.expander("Opciones avanzadas", expanded=False):
     with col1:
         local_script = st.checkbox("Guión local", value=False, help="Usar modelo local para el guión")
     with col2:
-        local_image = st.checkbox("Imágenes local", value=False, help="Usar modelo local para las imágenes")
+        local_image = st.checkbox("Imágenes local", value=True, help="Usar modelo local para las imágenes")
     with col3:
-        local_voice = st.checkbox("Voz local", value=False, help="Usar modelo local para la voz")
+        local_voice = st.checkbox("Voz local", value=True, help="Usar modelo local para la voz")
+    
+    # Selector de modelo de OpenAI para guiones
+    if not local_script:
+        openai_model = st.selectbox(
+            "Modelo de OpenAI para guiones",
+            options=[
+                "gpt-3.5-turbo", 
+                "gpt-3.5-turbo-0125",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "gpt-4-turbo-2024-04-09",
+                "gpt-4.1",
+                "gpt-4.5-preview"
+            ],
+            index=0,
+            help="Modelo de OpenAI a utilizar para generar el guión. Los modelos más avanzados (GPT-4) generan textos más creativos pero son más costosos."
+        )
+        
+        # Mostrar información sobre el modelo seleccionado
+        model_info = {
+            "gpt-3.5-turbo": "Modelo estándar con buen equilibrio entre calidad y costo.",
+            "gpt-3.5-turbo-0125": "Versión actualizada de GPT-3.5 con mejor formato y estructura.",
+            "gpt-4o": "Modelo multimodal de última generación para textos muy creativos y detallados.",
+            "gpt-4o-mini": "Versión económica y rápida de GPT-4o.",
+            "gpt-4-turbo-2024-04-09": "Modelo avanzado para guiones detallados y estructurados.",
+            "gpt-4.1": "El modelo GPT más reciente de OpenAI (2025-04-14).",
+            "gpt-4.5-preview": "Versión preliminar con capacidades avanzadas de texto e imagen."
+        }
+        st.info(model_info[openai_model])
+    else:
+        openai_model = None
     
     # Selección de modelo de imagen
     if local_image:
@@ -105,6 +162,14 @@ with st.sidebar.expander("Opciones avanzadas", expanded=False):
         )
     else:
         image_model = None
+
+    num_scenes = st.number_input(
+        "Número de escenas",
+        min_value=1,
+        max_value=10,
+        value=5,
+        help="Número de escenas para el guión"
+    )
     
     # Directorio de salida
     output_dir = st.text_input(
@@ -114,12 +179,6 @@ with st.sidebar.expander("Opciones avanzadas", expanded=False):
     )
     
     # Cargar archivos opcionales
-    voice_reference_file = st.file_uploader(
-        "Archivo de referencia de voz (opcional)", 
-        type=["mp3", "wav"],
-        help="Archivo de audio para clonar la voz (requiere modelo local de voz)"
-    )
-    
     background_music_file = st.file_uploader(
         "Música de fondo (opcional)", 
         type=["mp3", "wav"],
@@ -145,15 +204,7 @@ def generate_video(progress_placeholder):
         # Configurar directorios
         os.makedirs(output_dir, exist_ok=True)
         
-        # Verificar y guardar archivos temporalmente si se subieron
-        voice_reference_path = None
-        if voice_reference_file:
-            temp_voice = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            temp_voice.write(voice_reference_file.read())
-            voice_reference_path = temp_voice.name
-            temp_files.append(temp_voice.name)
-            temp_voice.close()
-            
+        # Verificar y guardar archivos temporalmente si se subieron            
         background_music_path = None
         if background_music_file:
             temp_music = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
@@ -166,6 +217,9 @@ def generate_video(progress_placeholder):
         valid_image_dir = None
         if image_dir and os.path.isdir(image_dir):
             valid_image_dir = image_dir
+        
+        # Obtener el estilo seleccionado
+        selected_style = next((style for style in styles if style["id"] == selected_style_id), None)
         
         # Mensajes de progreso
         progress_placeholder.text("Inicializando agente de IA...")
@@ -197,7 +251,7 @@ def generate_video(progress_placeholder):
         import builtins
         builtins.print = print_interceptor
         
-        add_log("Inicializando agente de IA...")
+        add_log(f"Inicializando agente de IA con estilo: {selected_style_name}...")
         
         # Inicializar el agente
         agent = AIVideoAgent(
@@ -206,8 +260,10 @@ def generate_video(progress_placeholder):
             local_voice=local_voice,
             output_dir=output_dir,
             image_dir=valid_image_dir,
-            voice_reference=voice_reference_path,
-            image_model=image_model if local_image else None
+            image_model=image_model if local_image else None,
+            script_model=openai_model if not local_script else None,
+            music_reference=background_music_path,
+            style=selected_style
         )
         
         add_log("Generando guión a partir del prompt...")
@@ -255,12 +311,12 @@ def generate_video(progress_placeholder):
         progress_callback = ProgressCallback()
         
         # Generar el video
-        add_log(f"Generando video con prompt: '{prompt[:50]}...'")
+        add_log(f"Generando video con prompt: '{prompt[:50]}...' y estilo: {selected_style_name}")
         video_path = agent.generate_video(
-            prompt=prompt,
+            video_topic=prompt,
             max_words=max_words,
-            background_music_path=background_music_path,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            num_scenes=num_scenes
         )
         
         # Restaurar print original
@@ -331,6 +387,7 @@ with st.expander("ℹ️ Acerca de esta herramienta"):
     
     ### Opciones avanzadas
     
+    - **Estilos de video**: Elige entre diferentes estilos predefinidos para el tono y aspecto del video
     - **Modelos locales**: Puedes usar modelos locales para evitar costes de API
     - **Referencia de voz**: Proporciona un archivo de audio para clonar esa voz
     - **Música de fondo**: Añade tu propia música como fondo del video
@@ -338,7 +395,7 @@ with st.expander("ℹ️ Acerca de esta herramienta"):
     ### Modelos utilizados
     
     - **Imágenes**: Stable Diffusion XL
-    - **Texto**: OpenAI GPT-4 (API) o Falcon-7B-Instruct (local)
+    - **Texto**: OpenAI GPT-4.1, GPT-4o, GPT-3.5 (API) o Falcon-7B-Instruct (local)
     - **Voz**: ElevenLabs (API) o modelos locales de TTS
     
     ### Requisitos

@@ -1,0 +1,67 @@
+{
+    "styles": [
+        {
+            "id": "educativo",
+            "name": "Educativo",
+            "description": "Estilo claro y didáctico, ideal para explicar conceptos y enseñar.",
+            "script_prompt": "Eres un experto en crear guiones educativos claros y concisos. Crea un guión didáctico y estructurado que explique el tema de manera sencilla. Utiliza un lenguaje accesible, ejemplos prácticos y analogías que faciliten la comprensión. Organiza la información de forma lógica con introducción, desarrollo por puntos clave y conclusión. Haz énfasis en los conceptos más importantes e incluye preguntas retóricas para mantener la atención del espectador.",
+            "image_prompt_template": "Imagen educativa y clara sobre {tema}, con estilo minimalista, fondos claros, elementos visuales educativos, diagramas explicativos, estilo infográfico profesional, iluminación brillante, colores vivos pero profesionales"
+        },
+        {
+            "id": "entretenimiento",
+            "name": "Entretenimiento",
+            "description": "Estilo dinámico y divertido, ideal para contenido de entretenimiento.",
+            "script_prompt": "Eres un guionista experto en contenido de entretenimiento. Crea un guión dinámico, energético y divertido que mantenga al espectador enganchado. Utiliza un lenguaje casual, informal y expresivo. Incluye giros narrativos inesperados, humor, anécdotas y elementos sorpresa. El ritmo debe ser rápido y variado. Incorpora frases impactantes, preguntas provocadoras y llamadas a la acción. Prioriza la diversión y el factor de entretenimiento sobre la formalidad.",
+            "image_prompt_template": "Imagen vibrante y divertida sobre {tema}, con colores intensos, estilo moderno y juvenil, elementos pop, dinámico, expresivo, iluminación dramática, ángulos creativos, aspecto de entretenimiento"
+        },
+        {
+            "id": "corporativo",
+            "name": "Corporativo",
+            "description": "Estilo profesional y formal para contenido empresarial.",
+            "script_prompt": "Eres un comunicador corporativo profesional. Crea un guión formal, directo y conciso apropiado para una audiencia empresarial. Utiliza un lenguaje profesional, preciso y técnicamente correcto. Estructura la información con claridad, priorizando datos relevantes y resultados cuantificables. Mantén un tono serio y confiable. Incluye menciones a eficiencia, productividad o valor agregado cuando sea relevante. Evita expresiones coloquiales o humor excesivo, manteniendo siempre la imagen corporativa.",
+            "image_prompt_template": "Imagen corporativa profesional sobre {tema}, con estilo minimalista, fondos neutros, aspecto limpio y profesional, paleta de colores sobria (azules, grises), personas en entorno de oficina, elementos de negocios, iluminación natural"
+        },
+        {
+            "id": "cinematico",
+            "name": "Cinemático",
+            "description": "Estilo visual y narrativo inspirado en el cine, con enfoque dramático.",
+            "script_prompt": "Eres un director de cine creando un guión visual y narrativo. Desarrolla un guión con estructura dramática cinematográfica, cuidando el arco narrativo. Utiliza un lenguaje descriptivo, evocador y con recursos literarios como metáforas. Construye tensión narrativa, incorpora elementos de conflicto y resolución. Crea descripciones visuales potentes que sugieran imágenes impactantes. El ritmo debe ser variado, con momentos de intensidad y calma. Piensa en escenas memorables y un final impactante.",
+            "image_prompt_template": "Imagen cinemática impactante sobre {tema}, con aspecto de película, composición dramática, iluminación cinematográfica contrastada, paleta de colores estilizada, profundidad de campo, ángulo cinematográfico, estilo visual de director de cine, calidad fotográfica profesional, atmósfera inmersiva"
+        },
+        {
+            "id": "minimalista",
+            "name": "Minimalista",
+            "description": "Estilo simple y elegante, con información esencial y diseño limpio.",
+            "script_prompt": "Eres un comunicador minimalista enfocado en la esencia. Crea un guión extremadamente conciso y directo que transmita solo la información esencial. Utiliza frases cortas, palabras precisas y elimina cualquier elemento superfluo. Estructura el contenido de forma simple y lineal. Cada palabra debe tener propósito y valor. Evita adjetivos innecesarios, redundancias y digresiones. El mensaje debe ser claro, directo y memorable, priorizando la simplicidad sobre la elaboración.",
+            "image_prompt_template": "Imagen minimalista sobre {tema}, con mucho espacio negativo, pocos elementos pero significativos, composición simple, colores limitados (2-3 máximo), líneas limpias, estilo moderno y elegante, sin adornos, simplicidad visual, formas geométricas básicas, aspecto limpio"
+        },
+        {
+            "id": "motivacional",
+            "name": "Motivacional",
+            "description": "Estilo inspirador y emotivo para motivar a la audiencia.",
+            "script_prompt": "Eres un coach motivacional creando un mensaje inspirador. Desarrolla un guión emotivo y energizante que motive a la acción. Utiliza un lenguaje positivo, poderoso y orientado al crecimiento personal. Incluye historias de superación, metáforas inspiradoras y llamadas directas a la acción. Estructura el mensaje con un inicio que conecte con los desafíos del espectador, un desarrollo que muestre posibilidades de cambio y un cierre que inspire a dar el primer paso. El tono debe transmitir optimismo, confianza y determinación.",
+            "image_prompt_template": "Imagen motivacional sobre {tema}, con personas logrando metas, amaneceres/atardeceres inspiradores, paisajes amplios, colores cálidos y vibrantes, simbolismo de crecimiento y superación, postura corporal positiva, expresiones de determinación, luz brillante, composición que transmita fuerza"
+        },
+        {
+            "id": "tutorial",
+            "name": "Tutorial",
+            "description": "Estilo paso a paso para enseñar procesos o habilidades específicas.",
+            "script_prompt": "Eres un instructor especializado en tutoriales prácticos. Crea un guión instruccional detallado que explique un proceso paso a paso. Utiliza un lenguaje claro, directo y orientado a la acción. Organiza la información en pasos secuenciales numerados o claramente identificables. Para cada paso, explica qué hacer, cómo hacerlo y por qué es importante. Anticipa posibles dificultades y ofrece consejos. Incluye frases de transición entre pasos y referencias visuales específicas. El objetivo es que el espectador pueda replicar el proceso fácilmente.",
+            "image_prompt_template": "Imagen tipo tutorial sobre {tema}, mostrando claramente un proceso paso a paso, con elementos numerados, flechas o indicadores direccionales, vista desde primera persona, manos realizando acciones, herramientas o materiales relevantes, fondo neutro para destacar el proceso, iluminación clara que muestre detalles"
+        },
+        {
+            "id": "infantil",
+            "name": "Infantil",
+            "description": "Estilo colorido y simple para niños, con lenguaje adaptado.",
+            "script_prompt": "Eres un creador de contenido infantil educativo y divertido. Crea un guión amigable para niños que explique conceptos de forma simple y entretenida. Utiliza un lenguaje sencillo, frases cortas y vocabulario apropiado para niños. Incluye elementos narrativos como personajes, preguntas directas al espectador y pequeñas canciones o rimas. Repite conceptos importantes de diferentes formas. Mantén un tono alegre, entusiasta y positivo. Incorpora elementos de asombro, descubrimiento y celebración del aprendizaje. El guión debe ser participativo, invitando a los niños a responder o realizar acciones.",
+            "image_prompt_template": "Imagen infantil sobre {tema}, con estilo de dibujo animado amigable para niños, colores primarios brillantes, personajes con rasgos redondeados y expresiones amigables, elementos grandes y simplificados, fondos coloridos pero no sobrecargados, aspecto divertido y acogedor, sin elementos atemorizantes"
+        },
+        {
+            "id": "documental",
+            "name": "Documental",
+            "description": "Estilo informativo y reflexivo, con enfoque periodístico o científico.",
+            "script_prompt": "Eres un guionista de documentales prestigioso. Crea un guión informativo y reflexivo con profundidad analítica. Utiliza un lenguaje preciso, descriptivo y periodístico. Incluye datos verificables, citas de expertos y contexto histórico. Estructura el contenido con una introducción que plantee interrogantes, un desarrollo que explore diferentes facetas del tema y una conclusión que invite a la reflexión. Alterna entre descripciones objetivas y elementos narrativos que humanicen la información. El tono debe ser serio, respetuoso y contemplativo, evitando sensacionalismos.",
+            "image_prompt_template": "Imagen estilo documental sobre {tema}, con aspecto fotográfico realista, composición periodística, iluminación natural, colores realistas pero estilizados, enfoque en sujetos auténticos, entornos reales, momentos capturados con autenticidad, profundidad visual, calidad cinematográfica, aspecto de fotografía de National Geographic"
+        }
+    ]
+}

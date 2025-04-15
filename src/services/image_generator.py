@@ -5,14 +5,11 @@ import requests
 from PIL import Image
 import tempfile
 import base64
-import json
-import re
 import random
 from glob import glob
 
 # Imports para modelo local de Stable Diffusion
 import torch
-from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 
 
 class ImageGenerator:
@@ -29,20 +26,23 @@ class ImageGenerator:
         """
         self.use_local_model = use_local_model
         self.image_dir = image_dir
-        self.use_existing_images = image_dir is not None and os.path.isdir(image_dir)
+        self.use_existing_images = image_dir is not None and os.path.isdir(
+            image_dir)
         self.device = device
         self.used_images = set()  # Para seguimiento de imágenes ya utilizadas
         self.use_simplified = False  # Inicializar el flag para modo simplificado
         self.pipe = None  # Inicializar el pipe como None
-        
+
         if self.use_existing_images:
-            print(f"Usando imágenes existentes del directorio: {self.image_dir}")
+            print(
+                f"Usando imágenes existentes del directorio: {self.image_dir}")
             # Verificar si hay imágenes en el directorio
             self.available_images = self._get_available_images()
             if not self.available_images:
-                print("Advertencia: No se encontraron imágenes en el directorio especificado.")
+                print(
+                    "Advertencia: No se encontraron imágenes en el directorio especificado.")
                 self.use_existing_images = False
-        
+
         if use_local_model and not self.use_existing_images:
             # Usar modelo local - no necesita API key
             self.local_model_path = local_model_path or "stabilityai/stable-diffusion-xl-base-1.0"
@@ -51,26 +51,29 @@ class ImageGenerator:
             # Usar Stability AI API
             self.api_key = api_key or os.environ.get("STABILITY_API_KEY")
             if not self.api_key:
-                raise ValueError("Se requiere una API key de Stability AI cuando no se usa modelo local ni imágenes existentes")
-            
+                raise ValueError(
+                    "Se requiere una API key de Stability AI cuando no se usa modelo local ni imágenes existentes")
+
             self.api_host = 'https://api.stability.ai'
             self.context = None  # Para almacenar contexto para traducción
 
     def _get_available_images(self):
         """Obtiene la lista de imágenes disponibles en el directorio especificado"""
-        image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif', '*.webp']
+        image_extensions = ['*.jpg', '*.jpeg',
+                            '*.png', '*.bmp', '*.gif', '*.webp']
         available_images = []
-        
+
         for ext in image_extensions:
             available_images.extend(glob(os.path.join(self.image_dir, ext)))
-        
+
         print(f"Se encontraron {len(available_images)} imágenes disponibles")
         return available_images
 
     def _setup_local_model(self):
         """Configura el modelo local para generación de imágenes"""
         try:
-            print(f"Usando generación de imágenes local con modelo: {self.local_model_path}")
+            print(
+                f"Usando generación de imágenes local con modelo: {self.local_model_path}")
 
             # Verificar si hay GPU disponible
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -86,7 +89,8 @@ class ImageGenerator:
                 from diffusers import StableDiffusionPipeline, AutoPipelineForText2Image
             except ImportError as e:
                 print(f"Error importando diffusers: {e}")
-                print("Asegúrate de tener instalado diffusers: pip install diffusers>=0.26.0")
+                print(
+                    "Asegúrate de tener instalado diffusers: pip install diffusers>=0.26.0")
                 raise
 
             # Configurar dtype según el dispositivo
@@ -100,18 +104,17 @@ class ImageGenerator:
             try:
                 self.pipe = StableDiffusionPipeline.from_pretrained(
                     self.local_model_path,
-                    torch_dtype=dtype,
-                    safety_checker=None  # Desactivar para velocidad (opcional)
+                    torch_dtype=dtype
                 )
                 print("Modelo SD estándar cargado correctamente")
             except Exception as e:
                 print(f"Error cargando modelo SD estándar: {e}")
                 raise
-            
+
             # Verificar que el pipe se ha cargado correctamente
             if self.pipe is None:
                 raise Exception("El pipeline no se inicializó correctamente")
-                
+
             # Mover el modelo al dispositivo correspondiente
             self.pipe = self.pipe.to(self.device)
             print(f"Modelo movido al dispositivo: {self.device}")
@@ -143,22 +146,23 @@ class ImageGenerator:
             print(f"Error al configurar modelo de difusión: {str(e)}")
             print("Volviendo al modo simplificado con modelo de respaldo")
             self.use_simplified = True
-            
+
             # Intentar cargar un modelo más sencillo y ligero como fallback
             try:
                 print("Intentando cargar modelo de respaldo...")
                 from diffusers import StableDiffusionPipeline
-                
+
                 # Usar un modelo más ligero y estable como respaldo
                 fallback_model = "CompVis/stable-diffusion-v1-4"
-                
+
                 self.pipe = StableDiffusionPipeline.from_pretrained(
                     fallback_model,
-                    torch_dtype=torch.float32,  # Usar float32 para mayor compatibilidad
-                    safety_checker=None
+                    torch_dtype=torch.float32  # Usar float32 para mayor compatibilidad
                 )
-                self.pipe = self.pipe.to("cpu")  # Forzar CPU para evitar problemas de memoria
-                print(f"Modelo de respaldo {fallback_model} cargado correctamente en CPU")
+                # Forzar CPU para evitar problemas de memoria
+                self.pipe = self.pipe.to("cpu")
+                print(
+                    f"Modelo de respaldo {fallback_model} cargado correctamente en CPU")
                 return True
             except Exception as fallback_e:
                 print(f"Error al cargar modelo de respaldo: {fallback_e}")
@@ -189,9 +193,9 @@ class ImageGenerator:
                 return self._generate_with_stability(prompt, output_path, width, height, steps)
         except Exception as e:
             raise Exception(f"Error al generar la imagen: {str(e)}")
-    
+
     def _generate_with_stability(self, prompt, output_path, width, height, steps):
-        """Genera una imagen usando la API de Stability AI"""        
+        """Genera una imagen usando la API de Stability AI"""
         # Usar el modelo más económico de Stability AI
         engine_id = "stable-image"
         level = "core"
@@ -243,8 +247,9 @@ class ImageGenerator:
         """Genera una imagen usando el modelo local de Stable Diffusion"""
         # Verificar si el pipe se inicializó correctamente
         if not hasattr(self, 'pipe') or self.pipe is None:
-            raise Exception("El pipeline de Stable Diffusion no está inicializado. Verifica la instalación de las dependencias.")
-            
+            raise Exception(
+                "El pipeline de Stable Diffusion no está inicializado. Verifica la instalación de las dependencias.")
+
         # Crear un archivo temporal si no se especifica una ruta
         if not output_path:
             temp_file = tempfile.NamedTemporaryFile(
@@ -263,7 +268,7 @@ class ImageGenerator:
         try:
             # Para modelos SD anteriores o el modelo de fallback
             print(f"Generando imagen con modelo estándar ({steps} pasos)...")
-            
+
             with torch.no_grad():
                 # Usar parámetros consistentes con el modelo
                 try:
@@ -289,9 +294,9 @@ class ImageGenerator:
             # Guardar la imagen
             image.save(output_path)
             print(f"Imagen guardada en: {output_path}")
-            
+
             return output_path
-            
+
         except Exception as e:
             print(f"Error al generar imagen con modelo local: {str(e)}")
             # Si falla, intentar un modo simplificado con menos pasos y dimensiones más pequeñas
@@ -300,24 +305,25 @@ class ImageGenerator:
                 # Intentar con dimensiones y pasos reducidos
                 width, height = 512, 512
                 steps = 20
-                
+
                 # Crear una imagen básica con PIL como último recurso
                 from PIL import Image, ImageDraw, ImageFont
                 import textwrap
-                
-                img = Image.new('RGB', (width, height), color = (0, 0, 0))
+
+                img = Image.new('RGB', (width, height), color=(0, 0, 0))
                 d = ImageDraw.Draw(img)
-                
+
                 # Añadir el prompt como texto en la imagen
                 font = ImageFont.load_default()
                 wrapped_text = textwrap.fill(prompt, width=40)
                 d.text((10, 10), wrapped_text, fill=(255, 255, 255), font=font)
-                
+
                 # Guardar la imagen
                 img.save(output_path)
-                print(f"Generada imagen de texto como fallback en: {output_path}")
+                print(
+                    f"Generada imagen de texto como fallback en: {output_path}")
                 return output_path
-                
+
             except Exception as fallback_error:
                 print(f"Error en modo simplificado: {str(fallback_error)}")
                 raise Exception(f"No se pudo generar la imagen: {str(e)}")
@@ -328,32 +334,35 @@ class ImageGenerator:
         cuando sea posible.
         """
         if not self.available_images:
-            raise Exception("No hay imágenes disponibles en el directorio especificado")
-        
+            raise Exception(
+                "No hay imágenes disponibles en el directorio especificado")
+
         # Obtener imágenes que aún no se han usado
-        unused_images = [img for img in self.available_images if img not in self.used_images]
-        
+        unused_images = [
+            img for img in self.available_images if img not in self.used_images]
+
         # Si todas las imágenes ya se han usado, reiniciar el seguimiento
         if not unused_images:
             print("Todas las imágenes ya han sido utilizadas. Reiniciando selección.")
             self.used_images.clear()
             unused_images = self.available_images
-        
+
         # Seleccionar una imagen no utilizada
         selected_image = random.choice(unused_images)
         self.used_images.add(selected_image)  # Marcar como utilizada
-        
+
         # Si no se especifica una ruta de salida, devolvemos la ruta de la imagen seleccionada
         if not output_path:
             return selected_image
-        
+
         # Si se especifica una ruta, copiamos la imagen
         try:
             img = Image.open(selected_image)
             img.save(output_path)
             return output_path
         except Exception as e:
-            raise Exception(f"Error al copiar la imagen seleccionada: {str(e)}")
+            raise Exception(
+                f"Error al copiar la imagen seleccionada: {str(e)}")
 
     def generate_images_for_sentences(self, sentences, output_dir="temp_images"):
         """
@@ -368,26 +377,28 @@ class ImageGenerator:
         """
         os.makedirs(output_dir, exist_ok=True)
         image_files = []
-        
+
         # Si estamos usando imágenes existentes, asegúrate de que hay suficientes
         if self.use_existing_images and len(sentences) > len(self.available_images):
-            print(f"Advertencia: Hay más oraciones ({len(sentences)}) que imágenes disponibles ({len(self.available_images)}). Algunas imágenes se repetirán.")
-        
+            print(
+                f"Advertencia: Hay más oraciones ({len(sentences)}) que imágenes disponibles ({len(self.available_images)}). Algunas imágenes se repetirán.")
+
         for i, sentence in enumerate(sentences):
             output_path = os.path.join(output_dir, f"image_{i}.png")
-            
+
             if not self.use_existing_images:
                 # Preparar el prompt para generar una imagen relevante
                 # Acortar la oración si es muy larga
                 max_prompt_len = 200
-                prompt = sentence[:max_prompt_len] if len(sentence) > max_prompt_len else sentence
-                
+                prompt = sentence[:max_prompt_len] if len(
+                    sentence) > max_prompt_len else sentence
+
                 # Añadir un prefijo para mejorar la calidad
                 enhanced_prompt = f"Imagen de alta calidad que muestra: {prompt}"
             else:
                 # Si usamos imágenes existentes, el prompt se ignora
                 enhanced_prompt = ""
-            
+
             try:
                 self.generate_image(enhanced_prompt, output_path)
                 image_files.append(output_path)
@@ -396,5 +407,5 @@ class ImageGenerator:
                     time.sleep(1)
             except Exception as e:
                 print(f"Error al generar imagen para la oración {i}: {str(e)}")
-        
+
         return image_files
